@@ -733,6 +733,10 @@ impl SlidingWindows {
                 format!("failed to load regions at {regions_bed_fp:?}")
             })?)
             .lines()
+            // skip comments/headers
+            .skip_while(|r| {
+                r.as_ref().map(|l| l.starts_with('#')).unwrap_or(false)
+            })
             // change the lines into Errors
             .map(|r| r.map_err(|e| anyhow!("failed to read line, {e}")))
             // Parse the lines

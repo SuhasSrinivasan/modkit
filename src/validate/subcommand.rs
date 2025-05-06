@@ -191,11 +191,15 @@ fn parse_ground_truth_bed_file(
     lines_processed.set_message("rows processed");
 
     let reader = BufReader::new(File::open(file_path)?);
-    for ground_truth_site in reader.lines().filter_map(|r| {
-        r.map_err(|e| anyhow!("failed to read, {}", e.to_string()))
-            .and_then(|line| parse_ground_truth_bed_line(&line))
-            .ok()
-    }) {
+    for ground_truth_site in reader
+        .lines()
+        .skip_while(|r| r.as_ref().map(|l| l.starts_with('#')).unwrap_or(false))
+        .filter_map(|r| {
+            r.map_err(|e| anyhow!("failed to read, {}", e.to_string()))
+                .and_then(|line| parse_ground_truth_bed_line(&line))
+                .ok()
+        })
+    {
         let cs_res = result
             .entry(ground_truth_site.chrom)
             .or_insert_with(HashMap::new)
