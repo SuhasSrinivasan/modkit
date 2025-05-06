@@ -132,6 +132,9 @@ impl EntryLocalize {
         let (regions, errs) = BufReader::new(File::open(&self.regions)?)
             .lines()
             .progress_with(pb)
+            .skip_while(|r| {
+                r.as_ref().map(|l| l.starts_with('#')).unwrap_or(false)
+            })
             .map(|r| {
                 r.map_err(|e| {
                     anyhow!("failed to read from regions BED file, {e}")

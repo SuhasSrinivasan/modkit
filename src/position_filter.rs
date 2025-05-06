@@ -249,6 +249,9 @@ impl StrandedPositionFilter<()> {
         for line in
             reader.lines().filter_map(|l| l.ok()).filter(|l| !l.is_empty())
         {
+            if line.starts_with('#') {
+                continue;
+            }
             let parts = line.split_ascii_whitespace().collect::<Vec<&str>>();
             let chrom_name = parts[0];
             if warned.contains(chrom_name) {

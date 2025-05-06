@@ -106,6 +106,9 @@ impl EntryStats {
         let genome_regions = BufReader::new(File::open(&self.regions)?)
             .lines()
             .progress_with(parse_pb)
+            .skip_while(|r| {
+                r.as_ref().map(|l| l.starts_with('#')).unwrap_or(false)
+            })
             .map(|r| {
                 r.map_err(|e| anyhow!("failed to read from regions file, {e}"))
                     .and_then(|raw| parser(&raw))
