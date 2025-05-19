@@ -110,6 +110,11 @@ pub struct EntryCheckTags {
     #[clap(help_heading = "Selection Options")]
     #[arg(long)]
     region: Option<String>,
+    /// Use the first N reads without sampling. Shorthand for --ignore-index
+    /// --num-reads N.
+    #[clap(help_heading = "Selection Options")]
+    #[arg(long, conflicts_with_all = ["num_reads", "ignore_index"])]
+    head: Option<usize>,
 }
 
 impl EntryCheckTags {
@@ -174,17 +179,28 @@ impl EntryCheckTags {
             }
         };
 
+        let indexed_reader = bam::IndexedReader::from_path(&self.in_bam);
+        let has_index = match (indexed_reader, self.region.as_ref()) {
+            (Err(e), Some(_)) => {
+                bail!("cannot use --region, failed to get BAM index, {e}")
+            }
+            (Err(_e), None) => false,
+            (Ok(_), _) => true,
+        };
+
         let linear_scan = self.ignore_index
+            || self.head.is_some()
             || using_stream(&self.in_bam)
-            || bam::IndexedReader::from_path(&self.in_bam).is_err();
+            || !has_index;
         let tag_views = pool.install(|| {
             if linear_scan {
                 reader.set_threads(self.threads)?;
-                let record_sampler = if let Some(n_reads) =
-                    self.num_reads.as_ref()
+
+                let record_sampler = if let Some(&n_reads) =
+                    self.num_reads.as_ref().or(self.head.as_ref())
                 {
-                    info!("checking tags on {n_reads} randomly sampled reads");
-                    RecordSampler::new_num_reads(*n_reads)
+                    info!("checking tags on first {n_reads} reads");
+                    RecordSampler::new_num_reads(n_reads)
                 } else {
                     RecordSampler::new_passthrough()
                 };
