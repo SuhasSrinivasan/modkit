@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result as AnyhowResult};
-
 use crate::errs::{MkError, MkResult};
 use crate::mod_bam::{CollapseMethod, EdgeFilter};
 use crate::mod_base_code::{DnaBase, ModCodeRepr};
@@ -11,6 +9,7 @@ use crate::read_ids_to_base_mod_probs::ReadIdsToBaseModProbs;
 use crate::reads_sampler::get_sampled_read_ids_to_base_mod_probs;
 use crate::threshold_mod_caller::MultipleThresholdModCaller;
 use crate::util::Region;
+use anyhow::{Context, Result as AnyhowResult};
 use log::{debug, info};
 use rayon::prelude::*;
 
@@ -84,12 +83,11 @@ pub(crate) fn calc_thresholds_per_base(
     filter_percentile: f32,
     default_threshold: Option<f32>,
     per_mod_thresholds: Option<HashMap<ModCodeRepr, f32>>,
-    suppress_progress: bool,
 ) -> AnyhowResult<MultipleThresholdModCaller> {
     debug!("calculating per base thresholds");
     let st = std::time::Instant::now();
-    let mut probs_per_base =
-        read_ids_to_base_mod_calls.mle_probs_per_base(suppress_progress);
+    let (mut probs_per_base, explicit_canonical_probs) =
+        read_ids_to_base_mod_calls.mle_probs_per_base();
     debug!("probs per base took {:?}s", st.elapsed().as_secs());
 
     let st = std::time::Instant::now();
@@ -104,7 +102,22 @@ pub(crate) fn calc_thresholds_per_base(
                         canonical_base.char()
                     )
                 })
-                .map(|t| (*canonical_base, t))
+                .map(|t| {
+                    let min_canonical_prob = explicit_canonical_probs
+                        .get(canonical_base)
+                        .copied()
+                        // qual 254
+                        .unwrap_or(0.9941406f32);
+                    if t < min_canonical_prob {
+                        (*canonical_base, t)
+                    } else {
+                        debug!(
+                            "estimated threshold too high {t}, using \
+                             {min_canonical_prob}"
+                        );
+                        (*canonical_base, min_canonical_prob)
+                    }
+                })
         })
         .collect::<AnyhowResult<HashMap<DnaBase, f32>>>()?;
     debug!("filter thresholds took {}s", st.elapsed().as_secs());
@@ -133,7 +146,7 @@ pub fn calc_threshold_from_bam(
     only_mapped: bool,
     suppress_progress: bool,
 ) -> AnyhowResult<HashMap<DnaBase, f32>> {
-    let mut can_base_probs = get_modbase_probs_from_bam(
+    let (mut can_base_probs, explicit_can_probs) = get_modbase_probs_from_bam(
         bam_fp,
         threads,
         interval_size,
@@ -153,7 +166,19 @@ pub fn calc_threshold_from_bam(
             mod_base_probs.par_sort_by(|x, y| x.partial_cmp(y).unwrap());
             let threshold =
                 percentile_linear_interp(&mod_base_probs, filter_percentile)?;
-            Ok((*dna_base, threshold))
+            let min_canonical_prob = explicit_can_probs
+                .get(dna_base)
+                .copied()
+                .unwrap_or(0.9941406f32);
+            if threshold < min_canonical_prob {
+                Ok((*dna_base, threshold))
+            } else {
+                debug!(
+                    "estimated threshold too high {threshold}, using \
+                     {min_canonical_prob}"
+                );
+                Ok((*dna_base, min_canonical_prob))
+            }
         })
         .collect()
 }
@@ -171,7 +196,7 @@ pub fn get_modbase_probs_from_bam(
     position_filter: Option<&StrandedPositionFilter<()>>,
     only_mapped: bool,
     suppress_progress: bool,
-) -> AnyhowResult<HashMap<DnaBase, Vec<f32>>> {
+) -> AnyhowResult<(HashMap<DnaBase, Vec<f32>>, HashMap<DnaBase, f32>)> {
     get_sampled_read_ids_to_base_mod_probs::<ReadIdsToBaseModProbs>(
         bam_fp,
         threads,
@@ -186,7 +211,7 @@ pub fn get_modbase_probs_from_bam(
         only_mapped,
         suppress_progress,
     )
-    .map(|x| x.mle_probs_per_base(suppress_progress))
+    .map(|x| x.mle_probs_per_base())
 }
 
 #[cfg(test)]

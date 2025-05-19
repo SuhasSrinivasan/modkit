@@ -17,7 +17,9 @@ use crate::thresholds::{
     get_modbase_probs_from_bam, log_calculated_thresholds,
     percentile_linear_interp,
 };
-use crate::util::{format_errors_table, get_master_progress_bar, get_ticker};
+use crate::util::{
+    format_errors_table, get_master_progress_bar, get_ticker, MutOpMax,
+};
 use anyhow::{bail, Context};
 use clap::Args;
 use indicatif::MultiProgress;
@@ -473,25 +475,30 @@ impl MethylationEntropy {
         } else {
             pool.install(|| {
                 let num_reads = self.num_reads / self.in_bams.len();
-                let mut agg = HashMap::new();
+                let mut base_to_probs = HashMap::new();
+                let mut explicit_canonical_probs_agg =
+                    HashMap::<DnaBase, f32>::new();
                 for in_bam in self.in_bams.iter() {
-                    let per_base_thresholds = get_modbase_probs_from_bam(
-                        in_bam,
-                        self.threads,
-                        1_000_000,
-                        None,
-                        Some(num_reads),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        true,
-                        self.suppress_progress,
-                    )?;
-                    agg.op_mut(per_base_thresholds);
+                    let (per_base_thresholds, explicit_canonical_probs) =
+                        get_modbase_probs_from_bam(
+                            in_bam,
+                            self.threads,
+                            1_000_000,
+                            None,
+                            Some(num_reads),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            true,
+                            self.suppress_progress,
+                        )?;
+                    base_to_probs.op_mut(per_base_thresholds);
+                    explicit_canonical_probs_agg
+                        .mut_op_max(explicit_canonical_probs);
                 }
-                let per_base_thresholds = agg
+                let per_base_thresholds = base_to_probs
                     .iter_mut()
                     .map(|(dna_base, mod_base_probs)| {
                         mod_base_probs

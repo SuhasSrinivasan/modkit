@@ -837,8 +837,8 @@ impl SampleModBaseProbs {
                 None
             };
 
-            let mle_probs_per_base = read_ids_to_base_mod_calls
-                .mle_probs_per_base(self.suppress_progress);
+            let mle_probs_per_base =
+                read_ids_to_base_mod_calls.mle_probs_per_base_merged();
             let pb = get_master_progress_bar(mle_probs_per_base.len());
             pb.set_message("calculating percentiles");
             let percentiles = mle_probs_per_base
@@ -1157,7 +1157,6 @@ impl ModSummarize {
                     self.filter_percentile,
                     None,
                     per_mod_thresholds,
-                    self.suppress_progress,
                 )?
             };
 

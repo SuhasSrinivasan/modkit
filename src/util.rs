@@ -1,5 +1,7 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::Hash;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::str;
@@ -1020,6 +1022,24 @@ pub(crate) fn get_human_readable_table() -> prettytable::Table {
     let mut tab = prettytable::Table::new();
     tab.set_format(*prettytable::format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
     tab
+}
+
+pub trait MutOpMax {
+    fn mut_op_max(&mut self, other: Self);
+}
+
+impl<T: Hash + Eq> MutOpMax for HashMap<T, f32> {
+    #[inline]
+    fn mut_op_max(&mut self, other: Self) {
+        for (k, p) in other.into_iter() {
+            self.entry(k)
+                .and_modify(|x| match (*x).partial_cmp(&p) {
+                    Some(Ordering::Less) => *x = p,
+                    None | Some(Ordering::Equal) | Some(Ordering::Greater) => {}
+                })
+                .or_insert(p);
+        }
+    }
 }
 
 #[cfg(test)]

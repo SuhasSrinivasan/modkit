@@ -29,7 +29,7 @@ use crate::record_processor::{RecordProcessor, WithRecords};
 use crate::util::{
     self, get_aligned_pairs_forward, get_master_progress_bar,
     get_query_name_string, get_reference_mod_strand, get_ticker,
-    record_is_primary, Kmer, Strand, MISSING_SYMBOL, TAB,
+    record_is_primary, Kmer, MutOpMax, Strand, MISSING_SYMBOL, TAB,
 };
 
 /// Read IDs mapped to their base modification probabilities, organized
@@ -63,20 +63,14 @@ impl ReadIdsToBaseModProbs {
     }
 
     #[inline]
-    /// Returns most likely probabilities for base modifications predicted for
-    /// each canonical base.
-    pub(crate) fn mle_probs_per_base(
+    // Returns most likely probabilities for base modifications predicted for
+    // each canonical base.
+    pub(crate) fn mle_probs_per_base_merged(
         &self,
-        suppress_progress: bool,
     ) -> HashMap<DnaBase, Vec<f32>> {
-        let pb = get_master_progress_bar(self.inner.len());
-        if suppress_progress {
-            pb.set_draw_target(indicatif::ProgressDrawTarget::hidden())
-        }
-        pb.set_message("aggregating per-base modification probabilities");
+        debug!("aggregating per-base modification probabilities");
         self.inner
             .par_iter()
-            .progress_with(pb)
             .map(|(_, can_base_to_base_mod_probs)| {
                 can_base_to_base_mod_probs
                     .iter()
@@ -99,6 +93,59 @@ impl ReadIdsToBaseModProbs {
                     .collect::<HashMap<DnaBase, Vec<f32>>>()
             })
             .reduce(|| HashMap::zero(), |a, b| a.op(b))
+    }
+
+    #[inline]
+    pub(crate) fn mle_probs_per_base(
+        &self,
+    ) -> (HashMap<DnaBase, Vec<f32>>, HashMap<DnaBase, f32>) {
+        self.inner
+            .par_iter()
+            // parallel over reads, aggregate the MLE prob per primary base and
+            // the implicit canonical probs (non-inferred) per base
+            .fold(
+                || (HashMap::new(), HashMap::new()),
+                |(mut calls_per_base, mut canonical_probs),
+                 (_, can_base_to_base_mod_probs)| {
+                    for (dna_base, probs) in can_base_to_base_mod_probs {
+                        let all_probs = calls_per_base
+                            .entry(*dna_base)
+                            .or_insert_with(|| Vec::new());
+                        let mut explicit_prob = Option::<f32>::None;
+                        for prob in probs {
+                            match prob.argmax_base_mod_call() {
+                                BaseModCall::Canonical(f) => {
+                                    all_probs.push(f);
+                                    if !prob.inferred_unmodified
+                                        && explicit_prob
+                                            .map(|x| f > x)
+                                            .unwrap_or(false)
+                                    {
+                                        explicit_prob = Some(f);
+                                    }
+                                }
+                                BaseModCall::Modified(f, _) => {
+                                    all_probs.push(f);
+                                }
+                                BaseModCall::Filtered => unreachable!(
+                                    "argmax should never return filtered"
+                                ),
+                            }
+                        }
+                        if let Some(p) = explicit_prob {
+                            canonical_probs.insert(*dna_base, p);
+                        }
+                    }
+                    (calls_per_base, canonical_probs)
+                },
+            )
+            .reduce(
+                || (HashMap::zero(), HashMap::new()),
+                |(a, mut x), (b, y)| {
+                    x.mut_op_max(y);
+                    (a.op(b), x)
+                },
+            )
     }
 
     /// return argmax probs for each mod-code
