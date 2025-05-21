@@ -1,0 +1,12 @@
+[package]
+name = "modkit-logging"
+version = "0.4.5"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.98"
+log = "0.4.27"
+log4rs = { version = "1.2.0", features = ["file_appender", "json_encoder"] }
+tracing = "0.1.41"
+tracing-appender = "0.2.3"
+tracing-subscriber = { version = "0.3.19", features = ["json"] }

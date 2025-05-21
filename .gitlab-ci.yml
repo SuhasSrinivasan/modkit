@@ -64,8 +64,8 @@ stages:
 
 # build images
 .rust_image: &rust_image
-  # 1.84.1 (https://hub.docker.com/layers/library/rust/1.84.1-bookworm/images/sha256-9397ddee68c0d42dbef8d0b8a2ad2b7889928ea9ecc87499a53ea7370a9502b1)
-  image: rust@sha256:738ae99a3d75623f41e6882566b4ef37e38a9840244a47efd4a0ca22e9628b88
+  # 1.86.0 (https://hub.docker.com/layers/library/rust/1.86.0-bookworm/images/sha256-afcf03f9dc98b318f8c5e98d9b9699475fe1dafd1c53b76b541bd96749d6b4c3)
+  image: rust@sha256:300ec56abce8cc9448ddea2172747d048ed902a3090e6b57babb2bf19f754081
 
 .ubuntu_1604_image: &ub16_image
   image: ubuntu@sha256:1f1a2d56de1d604801a9671f301190704c25d604a416f59e03c04f5c6ffee0d6
@@ -142,6 +142,7 @@ manual_build_modkit_linux:
   cp LICENCE.txt ${dist_dir}
   cp target/release/modkit ${dist_dir}
   cp -r docs ${dist_dir}
+  cp -r ochm/models ${dist_dir}
   echo "contents if distribution $(ls ${dist_dir})"
   tar -cvzf modkit_u16_x86_64.tar.gz ${dist_dir}
   ls modkit_u16_x86_64.tar.gz
