@@ -1,0 +1,29 @@
+This build of Modkit has been compiled against libtorch version 2.6.0+cu118 (hash: 2236df1770800ffea5697b11b0bb0d910b2e59e1) using the `--features tch` option. This is the fastest way to use `modkit open-chromatin` but requires a little more set up.
+
+To use this build, you should download and extract libtorch like this:
+
+wget -O libtorch.zip https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-2.6.0%2Bcu118.zip
+unzip libtorch.zip
+
+Then set the following environment variables:
+
+export LIBTORCH={path/to/}libtorch
+export DYLD_LIBRARY_PATH=${LIBTORCH}/lib
+export LD_LIBRARY_PATH=${DYLD_LIBRARY_PATH}
+
+You can check that everything is working by running `modkit open-chromatin predict <args> --dryrun`.
+
+In our testing this version of torchlib is compatible with a wide range of NVIDIA GPUs, but it may not be compatible with all versions.
+
+If this distribution isn't compatible with your setup the recommendation is so compile Modkit from source:
+
+1. Download the version of libtorch for your CUDA version: `https://download.pytorch.org/libtorch/${CUDA_VERSION}/libtorch-cxx11-abi-shared-with-deps-2.6.0%2B{CUDA_VERSION}.zip`, see the example above.
+2. Download rust `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+3. Clone Modkit: `git clone --depth 1 --branch <modkit version> https://github.com/nanoporetech/modkit.git`
+4. Build Modkit: `cd modkit && cargo build --release --features tch`
+
+Then follow the instructions above. 
+
+
+
+

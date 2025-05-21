@@ -1,0 +1,8 @@
+This build has CUDA NVIDIA GPU features enabled since it was compiled with the `--features candle` option. This means that the `modkit open-chromatin predict` subcommand will use the Candle backend and is suitable for use with NVIDIA GPUs. There are a few points to keep in mind:
+
+1. Whilst this backend should be compatible with a lot of NVIDIA GPUs, it may not work with ALL GPU-equipped compute setups.
+2. This backend is still 1-3x slower than the Torchlib backend.
+
+Basically, use this build if you have a NVIDIA GPU and want to get a quick start without downloading additional software. You can find additional information about how Candle works with Burn here: https://github.com/tracel-ai/burn?tab=readme-ov-file#backend
+
+
