@@ -32,6 +32,7 @@ cargo install --git https://github.com/nanoporetech/modkit.git
 11. [Performing differential methylation scoring with `dmr`](./intro_dmr.md)
 12. [Checking modified base tags in a modBAM](./intro_modbam_check_tags.md)
 13. [Convert bedMethyl files to bigWig for visualization](./intro_bedmethyl_merge.md#convert-bedmethyl-to-bigwig)
+14. [Predict regions of open chromatin on MTase-treated DNA](./intro_open_chromatin.md)
 
 ## Notes and troubleshooting
 1. [General troubleshooting](./troubleshooting.md)

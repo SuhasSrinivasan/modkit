@@ -23,6 +23,7 @@
     - [Narrow output to specific positions](./intro_include_bed.md)
     - [Manipulate bedMethyl files](./intro_bedmethyl_merge.md)
     - [Check modified base tags](./intro_modbam_check_tags.md)
+    - [Find regions of accessible chromatin](./intro_open_chromatin.md)
 - [Extended subcommand help](./advanced_usage.md)
 - [Troubleshooting](./troubleshooting.md)
 - [Frequently asked questions](./faq.md)
