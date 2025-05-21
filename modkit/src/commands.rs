@@ -133,6 +133,7 @@ pub enum Commands {
     #[clap(subcommand)]
     #[command(name = "modbam", alias = "mb")]
     ModBam(EntryModBam),
+    /// Identify regions of open chromatin based on exogenous 6mA signal
     #[clap(subcommand)]
     #[command(name = "open-chromatin", alias = "oc")]
     OpenChromatin(ochm::subcommand::OpenChromatin),

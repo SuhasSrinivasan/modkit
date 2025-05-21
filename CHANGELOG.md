@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.5.0]
+### Adds
+- [open-chromatin] Adds open chromatin prediction subcommand for 6mA MTase-treated DNA
+- [all] Fallback to ML 254 when threshold is estimated as 1.0
+### Changes
+- [all] Refactor to workspaces
+- [modbam, check-tags] Adds `--head <n>` option to take first `n` reads
+### Fixes 
+- [stats] Allow BED5 input regions and header/comment lines
+
 ## [v0.4.4]
 ### Adds
 - [extract] Adds alignment start and end columns

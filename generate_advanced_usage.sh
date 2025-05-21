@@ -28,6 +28,7 @@ subcommands=(
   "entropy"
   "localize"
   "stats"
+  "open-chromatin predict"
 )
 
 for cmd in "${subcommands[@]}"
