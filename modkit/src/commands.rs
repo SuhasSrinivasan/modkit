@@ -137,6 +137,12 @@ pub enum Commands {
     #[clap(subcommand)]
     #[command(name = "open-chromatin", alias = "oc")]
     OpenChromatin(ochm::subcommand::OpenChromatin),
+    #[command(hide = true)]
+    GenerateShellCompletions {
+        /// The shell to generate the completions for
+        #[arg(value_enum)]
+        shell: clap_complete_command::Shell,
+    },
 }
 
 impl Commands {
@@ -161,6 +167,18 @@ impl Commands {
             Self::BedMethyl(x) => x.run(),
             Self::ModBam(x) => x.run(),
             Self::OpenChromatin(x) => x.run(),
+            Self::GenerateShellCompletions { shell } => {
+                use clap::{CommandFactory as _, Parser};
+
+                #[derive(Parser)]
+                #[command(name = "modkit")]
+                struct Cli {
+                    #[command(subcommand)]
+                    command: Commands,
+                }
+                shell.generate(&mut Cli::command(), &mut std::io::stdout());
+                Ok(())
+            }
         }
     }
 }
