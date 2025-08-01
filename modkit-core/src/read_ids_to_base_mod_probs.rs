@@ -117,7 +117,7 @@ impl ReadIdsToBaseModProbs {
                                     if !prob.inferred_unmodified
                                         && explicit_prob
                                             .map(|x| f > x)
-                                            .unwrap_or(false)
+                                            .unwrap_or(true)
                                     {
                                         explicit_prob = Some(f);
                                     }

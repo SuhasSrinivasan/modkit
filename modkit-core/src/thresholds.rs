@@ -169,13 +169,20 @@ pub fn calc_threshold_from_bam(
             let min_canonical_prob = explicit_can_probs
                 .get(dna_base)
                 .copied()
-                .unwrap_or(0.9941406f32);
+                .unwrap_or_else(|| {
+                    debug!(
+                        "no explicit unmodified probs collected for \
+                         {dna_base}!"
+                    );
+                    0.9941406f32
+                });
             if threshold < min_canonical_prob {
                 Ok((*dna_base, threshold))
             } else {
                 debug!(
                     "estimated threshold too high {threshold}, using \
-                     {min_canonical_prob}"
+                     {min_canonical_prob} (maximum explicit canonical \
+                     probability)"
                 );
                 Ok((*dna_base, min_canonical_prob))
             }
