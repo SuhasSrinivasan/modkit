@@ -24,12 +24,14 @@ pub const HYDROXY_METHYL_CYTOSINE: ModCodeRepr = ModCodeRepr::Code('h');
 pub const FORMYL_CYTOSINE: ModCodeRepr = ModCodeRepr::Code('f');
 pub const CARBOXY_CYTOSINE: ModCodeRepr = ModCodeRepr::Code('c');
 pub const FOUR_METHYL_CYTOSINE: ModCodeRepr = ModCodeRepr::ChEbi(21839);
+pub const TWO_OME_CYTOSINE: ModCodeRepr = ModCodeRepr::ChEbi(19228);
 pub const ANY_CYTOSINE: ModCodeRepr = ModCodeRepr::Code('C');
 
 // Adenine mods
 pub const SIX_METHYL_ADENINE: ModCodeRepr = ModCodeRepr::Code('a');
 pub const ANY_ADENINE: ModCodeRepr = ModCodeRepr::Code('A');
 pub const INOSINE: ModCodeRepr = ModCodeRepr::ChEbi(17596);
+pub const TWO_OME_ADENINE: ModCodeRepr = ModCodeRepr::ChEbi(69426);
 
 // Thymine(/Uracil) mods
 pub const HYDROXY_METHYL_URACIL: ModCodeRepr = ModCodeRepr::Code('g');
@@ -38,29 +40,35 @@ pub const CARBOXY_URACIL: ModCodeRepr = ModCodeRepr::Code('b');
 pub const ANY_THYMINE: ModCodeRepr = ModCodeRepr::Code('T');
 pub const PSEUDOURIDINE: ModCodeRepr = ModCodeRepr::ChEbi(17802);
 pub const DEOXY_URACIL: ModCodeRepr = ModCodeRepr::ChEbi(16450);
+pub const TWO_OME_URACIL: ModCodeRepr = ModCodeRepr::ChEbi(19227);
 
 // Guanine mods
 pub const OXO_GUANINE: ModCodeRepr = ModCodeRepr::Code('o');
+pub const TWO_OME_GUANINE: ModCodeRepr = ModCodeRepr::ChEbi(19229);
 pub const ANY_GUANINE: ModCodeRepr = ModCodeRepr::Code('G');
 
 pub const ANY_MOD_CODES: [ModCodeRepr; 4] =
     [ANY_ADENINE, ANY_CYTOSINE, ANY_GUANINE, ANY_THYMINE];
-pub const SUPPORTED_CODES: [ModCodeRepr; 17] = [
+pub const SUPPORTED_CODES: [ModCodeRepr; 21] = [
     METHYL_CYTOSINE,
     HYDROXY_METHYL_CYTOSINE,
     FORMYL_CYTOSINE,
     CARBOXY_CYTOSINE,
     FOUR_METHYL_CYTOSINE,
     ANY_CYTOSINE,
+    TWO_OME_CYTOSINE,
     SIX_METHYL_ADENINE,
     ANY_ADENINE,
     INOSINE,
+    TWO_OME_ADENINE,
     HYDROXY_METHYL_URACIL,
     FORMYL_URACIL,
     CARBOXY_URACIL,
+    TWO_OME_URACIL,
     ANY_THYMINE,
     PSEUDOURIDINE,
     OXO_GUANINE,
+    TWO_OME_GUANINE,
     ANY_GUANINE,
     DEOXY_URACIL,
 ];
@@ -73,18 +81,22 @@ lazy_static! {
             FORMYL_CYTOSINE => DnaBase::C,
             CARBOXY_CYTOSINE => DnaBase::C,
             FOUR_METHYL_CYTOSINE => DnaBase::C,
+            TWO_OME_CYTOSINE => DnaBase::C,
             ANY_CYTOSINE => DnaBase::C,
             SIX_METHYL_ADENINE => DnaBase::A,
+            TWO_OME_ADENINE => DnaBase::A,
             ANY_ADENINE => DnaBase::A,
             INOSINE => DnaBase::A,
             HYDROXY_METHYL_URACIL => DnaBase::T,
             FORMYL_URACIL => DnaBase::T,
             CARBOXY_URACIL => DnaBase::T,
             PSEUDOURIDINE => DnaBase::T,
+            TWO_OME_URACIL => DnaBase::T,
+            DEOXY_URACIL => DnaBase::T,
             ANY_THYMINE => DnaBase::T,
             OXO_GUANINE => DnaBase::G,
+            TWO_OME_GUANINE => DnaBase::G,
             ANY_GUANINE => DnaBase::G,
-            DEOXY_URACIL => DnaBase::T,
         };
         hm.into_iter().collect()
     };
