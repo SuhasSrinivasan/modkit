@@ -389,8 +389,8 @@ pub struct EntryExtractCalls {
     /// See the online documentation for more details.
     #[clap(help_heading = "Filtering Options")]
     #[arg(
-        long,
-        alias = "mod-threshold",
+        long = "mod-threshold",
+        alias = "mod-thresholds",
         action = clap::ArgAction::Append,
         hide_short_help = true
     )]

@@ -180,8 +180,8 @@ pub struct ModBamPileup {
     /// See the online documentation for more details.
     #[clap(help_heading = "Filtering Options")]
     #[arg(
-    long,
-    alias = "mod-threshold",
+    long = "mod-threshold",
+    alias = "mod-thresholds",
     action = clap::ArgAction::Append
     )]
     mod_thresholds: Option<Vec<String>>,
@@ -990,8 +990,8 @@ pub struct DuplexModBamPileup {
     /// See the online documentation for more details.
     #[clap(help_heading = "Filtering Options")]
     #[arg(
-    long,
-    alias = "mod-threshold",
+    long = "mod-threshold",
+    alias = "mod-thresholds",
     action = clap::ArgAction::Append
     )]
     mod_thresholds: Option<Vec<String>>,

@@ -219,7 +219,7 @@ Filtering Options:
           --filter-threshold 0.9 will specify a threshold value of 0.70 for
           adenine and 0.9 for all other base modification calls
 
-      --mod-thresholds <MOD_THRESHOLDS>
+      --mod-threshold <MOD_THRESHOLDS>
           Specify a passing threshold to use for a base modification,
           independent of the threshold for the primary sequence base or the
           default. For example, to set the pass threshold for 5hmC to 0.8 use
@@ -414,7 +414,7 @@ Selection Options:
       --filter-probs
           Filter out the lowest confidence base modification probabilities
 
-      --only-mapped
+      --mapped-only
           Only use base modification probabilities from bases that are aligned
           when estimating the filter threshold (i.e. ignore soft-clipped, and
           inserted bases)
@@ -620,7 +620,7 @@ Selection Options:
           Only sample base modification probabilities that are aligned to the
           positions in this BED file. (alias: include-positions)
 
-      --only-mapped
+      --mapped-only
           Only use base modification probabilities that are aligned (i.e. ignore
           soft-clipped, and inserted bases)
 
@@ -738,7 +738,7 @@ Filtering Options:
           --filter-threshold 0.9 will specify a threshold value of 0.70 for
           adenine and 0.9 for all other base modification calls
 
-      --mod-thresholds <MOD_THRESHOLDS>
+      --mod-threshold <MOD_THRESHOLDS>
           Specify a passing threshold to use for a base modification,
           independent of the threshold for the primary sequence base or the
           default. For example, to set the pass threshold for 5hmC to 0.8 use
@@ -775,7 +775,7 @@ Selection Options:
           Only summarize base modification probabilities that are aligned to the
           positions in this BED file. (alias: include-positions)
 
-      --only-mapped
+      --mapped-only
           Only use base modification probabilities that are aligned (i.e. ignore
           soft-clipped, and inserted bases)
 
@@ -1218,7 +1218,7 @@ Filtering Options:
           --filter-threshold 0.9 will specify a threshold value of 0.70 for
           adenine and 0.9 for all other base modification calls
 
-      --mod-thresholds <MOD_THRESHOLDS>
+      --mod-threshold <MOD_THRESHOLDS>
           Specify a passing threshold to use for a base modification,
           independent of the threshold for the primary sequence base or the
           default. For example, to set the pass threshold for 5hmC to 0.8 use
@@ -1358,10 +1358,10 @@ Filtering Options:
       --filter-threshold <FILTER_THRESHOLD>
           Specify the filter threshold globally or for the canonical calls. When
           specified, base modification call probabilities will be required to be
-          greater than or equal to this number. If `--mod-thresholds` is also
+          greater than or equal to this number. If `--mod-threshold` is also
           specified, _this_ value will be used for canonical calls
 
-      --mod-thresholds <MOD_THRESHOLDS>
+      --mod-threshold <MOD_THRESHOLDS>
           Specify a passing threshold to use for a base modification,
           independent of the threshold for the primary sequence base or the
           default. For example, to set the pass threshold for 5hmC to 0.8 use
@@ -1930,7 +1930,7 @@ Filtering Options:
           --filter-threshold 0.9 will specify a threshold value of 0.70 for
           adenine and 0.9 for all other base modification calls
 
-      --mod-thresholds <MOD_THRESHOLDS>
+      --mod-threshold <MOD_THRESHOLDS>
           Specify a passing threshold to use for a base modification,
           independent of the threshold for the primary sequence base or the
           default. For example, to set the pass threshold for 5hmC to 0.8 use
@@ -2812,7 +2812,7 @@ Selection Options:
           Check tags on non-primary alignments as well. Keep in mind this may
           incur a double-counting of the read with its primary mapping
 
-      --only-mapped
+      --mapped-only
           Only check alignments that are mapped
 
       --region <REGION>

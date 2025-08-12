@@ -102,7 +102,11 @@ pub struct EntryCheckTags {
     allow_non_primary: bool,
     /// Only check alignments that are mapped.
     #[clap(help_heading = "Selection Options")]
-    #[arg(long, default_value_t = false)]
+    #[arg(
+        long = "mapped-only",
+        alias = "only-mapped",
+        default_value_t = false
+    )]
     only_mapped: bool,
 
     /// Process only the specified region of the BAM when collecting
