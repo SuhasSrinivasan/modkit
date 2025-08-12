@@ -341,6 +341,7 @@ pub struct Adjust {
     #[arg(
         requires="filter_probs",
         long = "mod-threshold",
+        alias = "mod-thresholds",
         action = clap::ArgAction::Append,
         hide_short_help = true,
     )]
@@ -350,7 +351,8 @@ pub struct Adjust {
     /// inserted bases).
     #[clap(help_heading = "Selection Options")]
     #[arg(
-        long,
+        long = "mapped-only",
+        alias = "only-mapped",
         default_value_t = false,
         hide_short_help = true,
         conflicts_with = "filter_percentile",
@@ -669,7 +671,12 @@ pub struct SampleModBaseProbs {
     sampling_frac: Option<f64>,
     /// No sampling, use all of the reads to calculate the filter thresholds.
     #[clap(help_heading = "Sampling Options")]
-    #[arg(long, group = "sampling_options", default_value_t = false)]
+    #[arg(
+        long,
+        alias = "no_filtering",
+        group = "sampling_options",
+        default_value_t = false
+    )]
     no_sampling: bool,
     /// Random seed for deterministic running, the default is
     /// non-deterministic, only used when no BAM index is provided.
@@ -697,7 +704,11 @@ pub struct SampleModBaseProbs {
     /// Only use base modification probabilities that are aligned (i.e. ignore
     /// soft-clipped, and inserted bases).
     #[clap(help_heading = "Selection Options")]
-    #[arg(long, default_value_t = false)]
+    #[arg(
+        long = "mapped-only",
+        alias = "only-mapped",
+        default_value_t = false
+    )]
     only_mapped: bool,
 }
 
@@ -1002,7 +1013,8 @@ pub struct ModSummarize {
     /// See the online documentation for more details.
     #[clap(help_heading = "Filtering Options")]
     #[arg(
-    long,
+    long = "mod-threshold",
+    alias = "mod-thresholds",
     action = clap::ArgAction::Append
     )]
     mod_thresholds: Option<Vec<String>>,
@@ -1038,9 +1050,13 @@ pub struct ModSummarize {
     include_bed: Option<PathBuf>,
     /// Only use base modification probabilities that are aligned (i.e. ignore
     /// soft-clipped, and inserted bases).
-    #[clap(help_heading = "Selection Options")]
+    #[clap(
+        long = "mapped-only",
+        alias = "only-mapped",
+        help_heading = "Selection Options"
+    )]
     #[arg(long, default_value_t = false)]
-    only_mapped: bool,
+    mapped_only: bool,
 
     /// Process only the specified region of the BAM when collecting
     /// probabilities. Format should be <chrom_name>:<start>-<end> or
@@ -1145,7 +1161,7 @@ impl ModSummarize {
                         collapse_method.as_ref(),
                         edge_filter.as_ref(),
                         position_filter.as_ref(),
-                        self.only_mapped || position_filter.is_some(),
+                        self.mapped_only || position_filter.is_some(),
                         false,
                         None,
                         None,
@@ -1165,7 +1181,7 @@ impl ModSummarize {
                     collapse_method.as_ref(),
                     edge_filter.as_ref(),
                     position_filter.as_ref(),
-                    self.only_mapped || position_filter.is_some(),
+                    self.mapped_only || position_filter.is_some(),
                     self.suppress_progress,
                 )?
             };
@@ -1520,7 +1536,9 @@ pub struct CallMods {
     /// unless the `--filter-threshold` option is also passed.
     /// See the online documentation for more details.
     #[arg(
+    long,
     long = "mod-threshold",
+    alias = "mod-thresholds",
     action = clap::ArgAction::Append
     )]
     mod_thresholds: Option<Vec<String>>,

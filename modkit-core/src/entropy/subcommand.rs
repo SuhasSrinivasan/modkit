@@ -86,7 +86,7 @@ pub struct MethylationEntropy {
     filter_percentile: f32,
     /// Specify the filter threshold globally or for the canonical calls.
     /// When specified, base modification call probabilities will be required
-    /// to be greater than or equal to this number. If `--mod-thresholds`
+    /// to be greater than or equal to this number. If `--mod-threshold`
     /// is also specified, _this_ value will be used for canonical calls.
     #[clap(help_heading = "Filtering Options")]
     #[arg(
@@ -105,8 +105,8 @@ pub struct MethylationEntropy {
     /// See the online documentation for more details.
     #[clap(help_heading = "Filtering Options")]
     #[arg(
-        long,
-        alias = "mod-threshold",
+        long = "mod-threshold",
+        alias = "mod-thresholds",
         action = clap::ArgAction::Append
     )]
     mod_thresholds: Option<Vec<String>>,
