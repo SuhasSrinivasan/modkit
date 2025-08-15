@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use bigtools::{
     beddata::BedParserStreamingIterator, BigWigWrite, InputSortType,
 };
@@ -13,6 +13,7 @@ use indicatif::{MultiProgress, ProgressDrawTarget};
 use itertools::Itertools;
 use log::{debug, error, info};
 use rayon::prelude::*;
+use rust_htslib::bam::{self, Read};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use modkit_logging::init_logging;
@@ -376,6 +377,56 @@ impl EntryMergeBedMethyl {
     }
 }
 
+#[derive(Debug, clap::Args)]
+#[group(required = true, multiple = false)]
+pub struct ChromSizes {
+    /// A chromosome sizes file. Each line should be a chromosome and its
+    /// size in bases, separated by whitespace. A fasta index (.fai) works as
+    /// well. Use instead of the bam header.
+    #[clap(short = 'g', long = "sizes")]
+    chromsizes: Option<PathBuf>,
+    /// modBAM from which the pileup was generated. Chromosome sizes are
+    /// gathered from the header. Use instead of the chromosome sizes file.
+    #[clap(short = 'b', long = "header")]
+    input_bam: Option<PathBuf>,
+}
+
+impl ChromSizes {
+    fn get_sequence_lengths(&self) -> anyhow::Result<HashMap<String, u32>> {
+        match (self.chromsizes.as_ref(), self.input_bam.as_ref()) {
+            (Some(fp), _) => read_sequence_lengths_file(fp).map(|sizes| {
+                sizes
+                    .into_iter()
+                    .map(|(ch, sz)| (ch, sz as u32))
+                    .collect::<HashMap<String, u32>>()
+            }),
+            (_, Some(fp)) => {
+                let reader = bam::Reader::from_path(fp)?;
+                let header = reader.header();
+                (0..header.target_count())
+                    .map(|tid| {
+                        header
+                            .target_len(tid)
+                            .ok_or(anyhow!(
+                                "header missing length for tid: {tid}"
+                            ))
+                            .map(|l| {
+                                let contig_name = header
+                                    .tid2name(tid)
+                                    .iter()
+                                    .map(|&b| b as char)
+                                    .collect::<String>();
+                                (contig_name, l as u32)
+                            })
+                    })
+                    .collect()
+            }
+            // should be disallowed by Clap
+            _ => bail!("chromsizes or header must be provided"),
+        }
+    }
+}
+
 #[derive(Args)]
 #[command(arg_required_else_help = true)]
 pub struct EntryToBigWig {
@@ -384,18 +435,14 @@ pub struct EntryToBigWig {
     in_bedmethyl: String,
     /// Output bigWig filename.
     out_fp: PathBuf,
-    /// A chromosome sizes file. Each line should be have a chromosome and its
-    /// size in bases, separated by whitespace. A fasta index (.fai) works as
-    /// well.
-    #[arg(long = "sizes", short = 'g')]
-    chromsizes: PathBuf,
-
+    #[clap(flatten)]
+    chrom_sizes: ChromSizes,
     /// Make a bigWig track where the values are the percent of bases with this
     /// modification, use multiple comma-separated codes to combine counts. For
     /// example --mod-code m makes a track of the 5mC percentages and
     /// --mod-codes h,m will make a track of the combined counts from 5hmC
     /// and 5mC. Combining counts for different primary bases will cause an
-    /// error (e.g. --mod-codes a,h).
+    /// error (e.g. --mod-codes a,h will error).
     #[arg(
         short = 'm',
         long,
@@ -419,26 +466,26 @@ pub struct EntryToBigWig {
 
     /// Set the maximum of zooms to create.
     #[clap(help_heading = "Output Options")]
-    #[arg(short = 'z', long, default_value_t = 10)]
+    #[arg(short = 'z', long, default_value_t = 10, hide_short_help = true)]
     pub nzooms: u32,
 
     /// Set the zoom resolutions to use (overrides the --nzooms argument).
     #[clap(help_heading = "Output Options")]
-    #[arg(long, value_delimiter = ',', num_args = 1..)]
+    #[arg(long, value_delimiter = ',', num_args = 1.., hide_short_help = true)]
     pub zooms: Option<Vec<u32>>,
 
     /// Don't use compression.
     #[clap(help_heading = "Output Options")]
-    #[arg(short = 'u', long, default_value_t = false)]
+    #[arg(short = 'u', long, default_value_t = false, hide_short_help = true)]
     pub uncompressed: bool,
 
     /// Number of items to bundle in r-tree.
     #[arg(long, default_value_t = 256)]
-    #[clap(help_heading = "Output Options")]
+    #[clap(help_heading = "Output Options", hide_short_help = true)]
     pub block_size: u32,
 
     /// Number of data points bundled at lowest level.
-    #[clap(help_heading = "Output Options")]
+    #[clap(help_heading = "Output Options", hide_short_help = true)]
     #[arg(long, default_value_t = 1024)]
     pub items_per_slot: u32,
 
@@ -446,6 +493,12 @@ pub struct EntryToBigWig {
     #[clap(help_heading = "Compute Options")]
     #[arg(long, default_value_t = false)]
     pub inmemory: bool,
+
+    /// If input bedMethyl has sorting of the same scheme as `sort`, this
+    /// option may speed up conversion.
+    #[clap(help_heading = "Compute Options")]
+    #[arg(long, default_value_t = false, hide_short_help = true)]
+    pub force_chromosome_ordering: bool,
 
     /// Specify a file for debug logs to be written to, otherwise ignore them.
     /// Setting a file is recommended. (alias: log)
@@ -479,13 +532,7 @@ impl EntryToBigWig {
             bail!("must provide at least one modification code to use")
         }
 
-        let chrom_sizes =
-            read_sequence_lengths_file(&self.chromsizes).map(|sizes| {
-                sizes
-                    .into_iter()
-                    .map(|(ch, sz)| (ch, sz as u32))
-                    .collect::<HashMap<String, u32>>()
-            })?;
+        let chrom_sizes = self.chrom_sizes.get_sequence_lengths()?;
         mpb.suspend(|| {
             info!("loaded {} chromosomes", chrom_sizes.len());
         });
@@ -512,7 +559,10 @@ impl EntryToBigWig {
             self.negative_strand_values,
             counter.clone(),
         )?;
-        let vals = BedParserStreamingIterator::new(in_stream, false);
+        let vals = BedParserStreamingIterator::new(
+            in_stream,
+            !self.force_chromosome_ordering,
+        );
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(self.nthreads)
