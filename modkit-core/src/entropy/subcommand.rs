@@ -22,8 +22,8 @@ use crate::reads_sampler::sampling_schedule::{
 };
 use crate::threshold_mod_caller::MultipleThresholdModCaller;
 use crate::thresholds::{
-    get_modbase_probs_from_bam, log_calculated_thresholds,
-    percentile_linear_interp,
+    calculate_threshold_with_fallback, get_modbase_probs_from_bam,
+    log_calculated_thresholds,
 };
 use crate::util::{
     format_errors_table, get_master_progress_bar, get_ticker, MutOpMax,
@@ -500,18 +500,12 @@ impl MethylationEntropy {
                     explicit_canonical_probs_agg
                         .op_max_mut(explicit_canonical_probs);
                 }
-                let per_base_thresholds = base_to_probs
-                    .iter_mut()
-                    .map(|(dna_base, mod_base_probs)| {
-                        mod_base_probs
-                            .par_sort_by(|x, y| x.partial_cmp(y).unwrap());
-                        let threshold = percentile_linear_interp(
-                            &mod_base_probs,
-                            self.filter_percentile,
-                        )?;
-                        Ok((*dna_base, threshold))
-                    })
-                    .collect::<anyhow::Result<HashMap<DnaBase, f32>>>()?;
+                // todo may want a caller per BAM?
+                let per_base_thresholds = calculate_threshold_with_fallback(
+                    base_to_probs,
+                    &explicit_canonical_probs_agg,
+                    self.filter_percentile,
+                )?;
                 log_calculated_thresholds(&per_base_thresholds);
                 Ok(MultipleThresholdModCaller::new(
                     per_base_thresholds,
