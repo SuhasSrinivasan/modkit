@@ -1182,6 +1182,7 @@ mod utils_tests {
             name: None,
             strand: StrandRule::Both,
         };
+        assert_eq!(gr, expected);
         let line = "chr1\t938169\t938373\tfoobar\n";
         let gr = GenomeRegion::parse_unstranded_bed_line(line).unwrap();
         let expected = GenomeRegion {
@@ -1191,6 +1192,7 @@ mod utils_tests {
             name: Some("foobar".to_string()),
             strand: StrandRule::Both,
         };
+        assert_eq!(gr, expected);
         let line = "chr1\t938169\t938373\tfoobar\t1000\n";
         let gr = GenomeRegion::parse_unstranded_bed_line(line).unwrap();
         let expected = GenomeRegion {
@@ -1200,6 +1202,7 @@ mod utils_tests {
             name: Some("foobar".to_string()),
             strand: StrandRule::Both,
         };
+        assert_eq!(gr, expected);
     }
 
     #[test]
