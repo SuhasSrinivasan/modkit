@@ -392,7 +392,7 @@ Filtering Options:
           --filter-threshold 0.9 will specify a threshold value of 0.70 for
           adenine and 0.9 for all other base modification calls
 
-      --mod-thresholds &lt;MOD_THRESHOLDS&gt;
+      --mod-threshold &lt;MOD_THRESHOLDS&gt;
           Specify a passing threshold to use for a base modification,
           independent of the threshold for the primary sequence base or the
           default. For example, to set the pass threshold for 5hmC to 0.8 use
@@ -585,7 +585,7 @@ Selection Options:
       --filter-probs
           Filter out the lowest confidence base modification probabilities
 
-      --only-mapped
+      --mapped-only
           Only use base modification probabilities from bases that are aligned
           when estimating the filter threshold (i.e. ignore soft-clipped, and
           inserted bases)
@@ -787,7 +787,7 @@ Selection Options:
           Only sample base modification probabilities that are aligned to the
           positions in this BED file. (alias: include-positions)
 
-      --only-mapped
+      --mapped-only
           Only use base modification probabilities that are aligned (i.e. ignore
           soft-clipped, and inserted bases)
 
@@ -903,7 +903,7 @@ Filtering Options:
           --filter-threshold 0.9 will specify a threshold value of 0.70 for
           adenine and 0.9 for all other base modification calls
 
-      --mod-thresholds &lt;MOD_THRESHOLDS&gt;
+      --mod-threshold &lt;MOD_THRESHOLDS&gt;
           Specify a passing threshold to use for a base modification,
           independent of the threshold for the primary sequence base or the
           default. For example, to set the pass threshold for 5hmC to 0.8 use
@@ -940,7 +940,7 @@ Selection Options:
           Only summarize base modification probabilities that are aligned to the
           positions in this BED file. (alias: include-positions)
 
-      --only-mapped
+      --mapped-only
           Only use base modification probabilities that are aligned (i.e. ignore
           soft-clipped, and inserted bases)
 
@@ -1375,7 +1375,7 @@ Filtering Options:
           --filter-threshold 0.9 will specify a threshold value of 0.70 for
           adenine and 0.9 for all other base modification calls
 
-      --mod-thresholds &lt;MOD_THRESHOLDS&gt;
+      --mod-threshold &lt;MOD_THRESHOLDS&gt;
           Specify a passing threshold to use for a base modification,
           independent of the threshold for the primary sequence base or the
           default. For example, to set the pass threshold for 5hmC to 0.8 use
@@ -1513,10 +1513,10 @@ Filtering Options:
       --filter-threshold &lt;FILTER_THRESHOLD&gt;
           Specify the filter threshold globally or for the canonical calls. When
           specified, base modification call probabilities will be required to be
-          greater than or equal to this number. If `--mod-thresholds` is also
+          greater than or equal to this number. If `--mod-threshold` is also
           specified, _this_ value will be used for canonical calls
 
-      --mod-thresholds &lt;MOD_THRESHOLDS&gt;
+      --mod-threshold &lt;MOD_THRESHOLDS&gt;
           Specify a passing threshold to use for a base modification,
           independent of the threshold for the primary sequence base or the
           default. For example, to set the pass threshold for 5hmC to 0.8 use
@@ -2075,7 +2075,7 @@ Filtering Options:
           --filter-threshold 0.9 will specify a threshold value of 0.70 for
           adenine and 0.9 for all other base modification calls
 
-      --mod-thresholds &lt;MOD_THRESHOLDS&gt;
+      --mod-threshold &lt;MOD_THRESHOLDS&gt;
           Specify a passing threshold to use for a base modification,
           independent of the threshold for the primary sequence base or the
           default. For example, to set the pass threshold for 5hmC to 0.8 use
@@ -2827,52 +2827,82 @@ Logging Options:
 <pre><code class="language-text">Make a BigWig track from a bedMethyl file or stream. For details on the BigWig
 format see https://doi.org/10.1093/bioinformatics/btq351
 
-Usage: modkit bedmethyl tobigwig [OPTIONS] --sizes &lt;CHROMSIZES&gt; --mod-codes &lt;MOD_CODES&gt; &lt;IN_BEDMETHYL&gt; &lt;OUT_FP&gt;
+Usage: modkit bedmethyl tobigwig [OPTIONS] --mod-codes &lt;MOD_CODES&gt; &lt;--sizes &lt;CHROMSIZES&gt;|--header &lt;INPUT_BAM&gt;&gt; &lt;IN_BEDMETHYL&gt; &lt;OUT_FP&gt;
 
 Arguments:
-  &lt;IN_BEDMETHYL&gt;  Input bedmethyl, uncompressed, "-" or "stdin" indicates an
-                  input stream
-  &lt;OUT_FP&gt;        Output bigWig filename
+  &lt;IN_BEDMETHYL&gt;
+          Input bedmethyl, uncompressed, "-" or "stdin" indicates an input
+          stream
+
+  &lt;OUT_FP&gt;
+          Output bigWig filename
 
 Options:
-  -g, --sizes &lt;CHROMSIZES&gt;     A chromosome sizes file. Each line should be have
-                               a chromosome and its size in bases, separated by
-                               whitespace. A fasta index (.fai) works as well
-  -m, --mod-codes &lt;MOD_CODES&gt;  Make a bigWig track where the values are the
-                               percent of bases with this modification, use
-                               multiple comma-separated codes to combine counts.
-                               For example --mod-code m makes a track of the 5mC
-                               percentages and --mod-codes h,m will make a track
-                               of the combined counts from 5hmC and 5mC.
-                               Combining counts for different primary bases will
-                               cause an error (e.g. --mod-codes a,h)
-  -h, --help                   Print help
+  -g, --sizes &lt;CHROMSIZES&gt;
+          A chromosome sizes file. Each line should be a chromosome and its size
+          in bases, separated by whitespace. A fasta index (.fai) works as well.
+          Use instead of the bam header
+
+  -b, --header &lt;INPUT_BAM&gt;
+          modBAM from which the pileup was generated. Chromosome sizes are
+          gathered from the header. Use instead of the chromosome sizes file
+
+  -m, --mod-codes &lt;MOD_CODES&gt;
+          Make a bigWig track where the values are the percent of bases with
+          this modification, use multiple comma-separated codes to combine
+          counts. For example --mod-code m makes a track of the 5mC percentages
+          and --mod-codes h,m will make a track of the combined counts from 5hmC
+          and 5mC. Combining counts for different primary bases will cause an
+          error (e.g. --mod-codes a,h will error)
+
+  -h, --help
+          Print help (see a summary with '-h')
 
 Output Options:
       --negative-strand-values
           Report the percentages on the negative strand as negative values. The
           data range will be [-100, 100]
+
   -z, --nzooms &lt;NZOOMS&gt;
-          Set the maximum of zooms to create [default: 10]
+          Set the maximum of zooms to create
+          
+          [default: 10]
+
       --zooms &lt;ZOOMS&gt;...
           Set the zoom resolutions to use (overrides the --nzooms argument)
+
   -u, --uncompressed
           Don't use compression
+
       --block-size &lt;BLOCK_SIZE&gt;
-          Number of items to bundle in r-tree [default: 256]
+          Number of items to bundle in r-tree
+          
+          [default: 256]
+
       --items-per-slot &lt;ITEMS_PER_SLOT&gt;
-          Number of data points bundled at lowest level [default: 1024]
+          Number of data points bundled at lowest level
+          
+          [default: 1024]
 
 Compute Options:
-  -t, --nthreads &lt;NTHREADS&gt;  Set the number of threads to use. This tool will
-                             typically use ~225% CPU on a HDD. SDDs may be
-                             higher. (IO bound) [default: 6]
-      --inmemory             Do not create temporary files for intermediate data
+  -t, --nthreads &lt;NTHREADS&gt;
+          Set the number of threads to use. This tool will typically use ~225%
+          CPU on a HDD. SDDs may be higher. (IO bound)
+          
+          [default: 6]
+
+      --inmemory
+          Do not create temporary files for intermediate data
+
+      --force-chromosome-ordering
+          If input bedMethyl has sorting of the same scheme as `sort`, this
+          option may speed up conversion
 
 Logging Options:
       --log-filepath &lt;LOG_FILEPATH&gt;
           Specify a file for debug logs to be written to, otherwise ignore them.
           Setting a file is recommended. (alias: log)
+
       --suppress-progress
           Hide the progress bar
 </code></pre>
@@ -2939,7 +2969,7 @@ Selection Options:
           Check tags on non-primary alignments as well. Keep in mind this may
           incur a double-counting of the read with its primary mapping
 
-      --only-mapped
+      --mapped-only
           Only check alignments that are mapped
 
       --region &lt;REGION&gt;

@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.5.1-rc1]
+### Fixes
+- [pileup] Fixes bug where N_diff was incorrectly summed when `--combine-strands` was used. (N.B. %-methylation was still correct).
+- Fixes bug where fallback threshold was incorrect. Will now be highest observed explicit canonical probability, was highest bin.
+- Fixes conversion to bigWig when chromosomes aren't sorted exactly the way that `sort` would do it.
+### Adds
+- [cli] Adds shell completions command, thanks to @killercup
+- [dmr] Adds 2OMe mod codes
+- [validate] Adds better logging when NM tag is missing or reads fail.
+- Allows bgzip-compressed FASTA references across all commands
+- [bedmethyl, tobigwig] Allow using header from modBAM instead of sizes.
+
 ## [v0.5.0]
 ### Adds
 - [open-chromatin] Adds open chromatin prediction subcommand for 6mA MTase-treated DNA
