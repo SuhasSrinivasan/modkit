@@ -322,9 +322,9 @@ If your bedMethyl has records with custom modification codes or codes that aren'
 <tr><td>5</td><td>score</td><td>difference score, more positive values have increased difference</td><td>float</td></tr>
 <tr><td>6</td><td>strand</td><td>strand for the region or single-base position</td><td>str</td></tr>
 <tr><td>7</td><td>sample<sub>a</sub> counts</td><td>counts of each base modification in the region, comma-separated, for sample A</td><td>str</td></tr>
-<tr><td>8</td><td>sample<sub>a</sub> total</td><td>total number of base modification calls in the region, including unmodified, for sample A</td><td>str</td></tr>
+<tr><td>8</td><td>sample<sub>a</sub> total</td><td>total number of base modification calls in the region, including unmodified, for sample A</td><td>int</td></tr>
 <tr><td>9</td><td>sample<sub>b</sub> counts</td><td>counts of each base modification in the region, comma-separated, for sample B</td><td>str</td></tr>
-<tr><td>10</td><td>sample<sub>b</sub> total</td><td>total number of base modification calls in the region, including unmodified, for sample B</td><td>str</td></tr>
+<tr><td>10</td><td>sample<sub>b</sub> total</td><td>total number of base modification calls in the region, including unmodified, for sample B</td><td>int</td></tr>
 <tr><td>11</td><td>sample<sub>a</sub> percents</td><td>percent of calls for each base modification in the region, comma-separated, for sample A</td><td>str</td></tr>
 <tr><td>12</td><td>sample<sub>b</sub> percents</td><td>percent of calls for each base modification in the region, comma-separated, for sample B</td><td>str</td></tr>
 <tr><td>13</td><td>sample<sub>a</sub> fraction modified</td><td>fraction modification (of any kind) in sample A</td><td>float</td></tr>
@@ -383,6 +383,28 @@ If you have a different number of samples for each condition, such as:</p>
   -b ${tumor_pileup_2}.gz \
 </code></pre>
 <p>these columns will not be present.</p>
+<p>The full table when performing single-site analysis with equal numbers of samples in groups, when running <code>modkit dmr pair</code>, will have the following schema:</p>
+<div class="table-wrapper"><table><thead><tr><th>column</th><th>name</th><th>description</th><th>type</th></tr></thead><tbody>
+<tr><td>1</td><td>chrom</td><td>name of reference sequence from bedMethyl input samples</td><td>str</td></tr>
+<tr><td>2</td><td>start position</td><td>0-based start position, from <code>--regions</code> argument</td><td>int</td></tr>
+<tr><td>3</td><td>end position</td><td>0-based exclusive end position, from <code>--regions</code> argument</td><td>int</td></tr>
+<tr><td>4</td><td>name</td><td><code>name</code> column from <code>--regions</code> BED, or <code>chr:start-stop</code> if absent, "." for single sites</td><td>str</td></tr>
+<tr><td>5</td><td>score</td><td>difference score, more positive values have increased difference</td><td>float</td></tr>
+<tr><td>6</td><td>strand</td><td>strand for the region or single-base position</td><td>str</td></tr>
+<tr><td>7</td><td>sample<sub>a</sub> counts</td><td>counts of each base modification in the region, comma-separated, for sample A</td><td>str</td></tr>
+<tr><td>8</td><td>sample<sub>a</sub> total</td><td>total number of base modification calls in the region, including unmodified, for sample A</td><td>int</td></tr>
+<tr><td>9</td><td>sample<sub>b</sub> counts</td><td>counts of each base modification in the region, comma-separated, for sample B</td><td>str</td></tr>
+<tr><td>10</td><td>sample<sub>b</sub> total</td><td>total number of base modification calls in the region, including unmodified, for sample B</td><td>int</td></tr>
+<tr><td>11</td><td>sample<sub>a</sub> percents</td><td>percent of calls for each base modification in the region, comma-separated, for sample A</td><td>str</td></tr>
+<tr><td>12</td><td>sample<sub>b</sub> percents</td><td>percent of calls for each base modification in the region, comma-separated, for sample B</td><td>str</td></tr>
+<tr><td>13</td><td>sample<sub>a</sub> fraction modified</td><td>fraction modification (of any kind) in sample A</td><td>float</td></tr>
+<tr><td>14</td><td>sample<sub>b</sub> fraction modified</td><td>fraction modification (of any kind) in sample B</td><td>float</td></tr>
+<tr><td>15</td><td>MAP-based p-value</td><td>ratio of the posterior probability of observing the effect size over zero effect size</td><td>float</td></tr>
+<tr><td>16</td><td>effect size</td><td>percent modified in sample A (col 12) minus percent modified in sample B (col 13)</td><td>float</td></tr>
+<tr><td>17</td><td>balanced MAP-based p-value</td><td>MAP-based p-value when all replicates are balanced</td><td>float</td></tr>
+<tr><td>18</td><td>balanced effect size</td><td>effect size when all replicates are balanced</td><td>float</td></tr>
+</tbody></table>
+</div>
 <h2 id="segmenting-on-differential-methylation"><a class="header" href="#segmenting-on-differential-methylation">Segmenting on differential methylation</a></h2>
 <p>When running <code>modkit dmr</code> without <code>--regions</code> (i.e. <a href="#3-detecting-differential-modification-at-single-base-positions">single-site analysis</a>) you can generate regions of differential methylation on-the-fly using the segmenting <a href="./dmr_scoring_details.html#dmr-segmentation-hidden-markov-model">hidden Markov model</a> (HMM).
 To run segmenting on the fly, add the <code>--segment $segments_bed_fp</code> option to the command such as:</p>

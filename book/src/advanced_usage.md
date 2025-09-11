@@ -2698,52 +2698,82 @@ Logging Options:
 Make a BigWig track from a bedMethyl file or stream. For details on the BigWig
 format see https://doi.org/10.1093/bioinformatics/btq351
 
-Usage: modkit bedmethyl tobigwig [OPTIONS] --sizes <CHROMSIZES> --mod-codes <MOD_CODES> <IN_BEDMETHYL> <OUT_FP>
+Usage: modkit bedmethyl tobigwig [OPTIONS] --mod-codes <MOD_CODES> <--sizes <CHROMSIZES>|--header <INPUT_BAM>> <IN_BEDMETHYL> <OUT_FP>
 
 Arguments:
-  <IN_BEDMETHYL>  Input bedmethyl, uncompressed, "-" or "stdin" indicates an
-                  input stream
-  <OUT_FP>        Output bigWig filename
+  <IN_BEDMETHYL>
+          Input bedmethyl, uncompressed, "-" or "stdin" indicates an input
+          stream
+
+  <OUT_FP>
+          Output bigWig filename
 
 Options:
-  -g, --sizes <CHROMSIZES>     A chromosome sizes file. Each line should be have
-                               a chromosome and its size in bases, separated by
-                               whitespace. A fasta index (.fai) works as well
-  -m, --mod-codes <MOD_CODES>  Make a bigWig track where the values are the
-                               percent of bases with this modification, use
-                               multiple comma-separated codes to combine counts.
-                               For example --mod-code m makes a track of the 5mC
-                               percentages and --mod-codes h,m will make a track
-                               of the combined counts from 5hmC and 5mC.
-                               Combining counts for different primary bases will
-                               cause an error (e.g. --mod-codes a,h)
-  -h, --help                   Print help
+  -g, --sizes <CHROMSIZES>
+          A chromosome sizes file. Each line should be a chromosome and its size
+          in bases, separated by whitespace. A fasta index (.fai) works as well.
+          Use instead of the bam header
+
+  -b, --header <INPUT_BAM>
+          modBAM from which the pileup was generated. Chromosome sizes are
+          gathered from the header. Use instead of the chromosome sizes file
+
+  -m, --mod-codes <MOD_CODES>
+          Make a bigWig track where the values are the percent of bases with
+          this modification, use multiple comma-separated codes to combine
+          counts. For example --mod-code m makes a track of the 5mC percentages
+          and --mod-codes h,m will make a track of the combined counts from 5hmC
+          and 5mC. Combining counts for different primary bases will cause an
+          error (e.g. --mod-codes a,h will error)
+
+  -h, --help
+          Print help (see a summary with '-h')
 
 Output Options:
       --negative-strand-values
           Report the percentages on the negative strand as negative values. The
           data range will be [-100, 100]
+
   -z, --nzooms <NZOOMS>
-          Set the maximum of zooms to create [default: 10]
+          Set the maximum of zooms to create
+          
+          [default: 10]
+
       --zooms <ZOOMS>...
           Set the zoom resolutions to use (overrides the --nzooms argument)
+
   -u, --uncompressed
           Don't use compression
+
       --block-size <BLOCK_SIZE>
-          Number of items to bundle in r-tree [default: 256]
+          Number of items to bundle in r-tree
+          
+          [default: 256]
+
       --items-per-slot <ITEMS_PER_SLOT>
-          Number of data points bundled at lowest level [default: 1024]
+          Number of data points bundled at lowest level
+          
+          [default: 1024]
 
 Compute Options:
-  -t, --nthreads <NTHREADS>  Set the number of threads to use. This tool will
-                             typically use ~225% CPU on a HDD. SDDs may be
-                             higher. (IO bound) [default: 6]
-      --inmemory             Do not create temporary files for intermediate data
+  -t, --nthreads <NTHREADS>
+          Set the number of threads to use. This tool will typically use ~225%
+          CPU on a HDD. SDDs may be higher. (IO bound)
+          
+          [default: 6]
+
+      --inmemory
+          Do not create temporary files for intermediate data
+
+      --force-chromosome-ordering
+          If input bedMethyl has sorting of the same scheme as `sort`, this
+          option may speed up conversion
 
 Logging Options:
       --log-filepath <LOG_FILEPATH>
           Specify a file for debug logs to be written to, otherwise ignore them.
           Setting a file is recommended. (alias: log)
+
       --suppress-progress
           Hide the progress bar
 ```
