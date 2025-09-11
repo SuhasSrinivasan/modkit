@@ -255,6 +255,26 @@ fn test_pileup_cpg_motif_filtering() {
 }
 
 #[test]
+fn test_pileup_cpg_motif_filtering_compressed_ref() {
+    let temp_file = std::env::temp_dir().join("test_cpg_motif_filtering.bed");
+    run_modkit(&[
+        "pileup",
+        "../tests/resources/bc_anchored_10_reads.sorted.bam",
+        temp_file.to_str().unwrap(),
+        "--no-filtering",
+        "--mixed-delim",
+        "--cpg",
+        "--ref",
+        "../tests/resources/CGI_ladder_3.6kb_ref.fa.gz",
+    ])
+    .unwrap();
+    check_against_expected_text_file(
+        temp_file.to_str().unwrap(),
+        "../tests/resources/bc_anchored_10_reads_nofilt_cg_motif.bed",
+    );
+}
+
+#[test]
 fn test_pileup_cpg_motif_filtering_strand_combine() {
     let temp_file = std::env::temp_dir()
         .join("test_cpg_motif_filtering_strand_combine.bed");
