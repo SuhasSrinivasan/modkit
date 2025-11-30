@@ -39,7 +39,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b27bf96e.js";
+            window.path_to_searchindex_js = "searchindex-837351bc.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-2cf11e43.js"></script>
@@ -220,7 +220,7 @@ cargo install --git https://github.com/nanoporetech/modkit.git
 <p>A primary use of <code>modkit</code> is to create summary counts of modified and unmodified bases in an extended <a href="https://www.encodeproject.org/data-standards/wgbs/">bedMethyl</a> format.
 bedMethyl files tabulate the counts of base modifications from every sequencing read over each aligned reference genomic position.
 In order to create a bedMethyl table, your modBAM must be aligned to a reference genome or transcriptome.
-Although not required, providing a reference and using the <code>--modified-bases</code> option will provide the clearest results and can greatly improve performance (details below).
+Although not required, providing a reference and using the <code>--modified-bases</code> option will provide the clearest results with the best computational performance.
 Only <strong>primary alignments</strong> are used in generating the table, it is recommended to mark duplicate alignments before running as multiple primary alignments can be double counted.</p>
 <h2 id="recommended-usage"><a class="header" href="#recommended-usage">Recommended usage</a></h2>
 <blockquote class="blockquote-tag blockquote-tag-important">
@@ -244,7 +244,7 @@ Only <strong>primary alignments</strong> are used in generating the table, it is
 <p>Passing <code>--modified-bases</code> not required, but directs Modkit to use optimized routines which will lead to better efficiency.
 This option <em>does</em> require a FASTA reference, and will only emit bedmethyl records for base modifications to the primary sequence base in the reference.
 For example, a command with the option <code>--modified-bases 5mC 5hmC 6mA</code> will <em>not</em> have 6mA records on genomic Cytosine locations where a read has a C&gt;A mismatch nor 5mC/5hmC records at genomic Adenine locations.
-For more details on how this option works see <a href="#migrating-to-modkit-v060-pileup">migrating to v0.6.0</a>.</p>
+For more details on how this option changes results from previous versions see <a href="#migrating-to-modkit-v060-pileup">migrating to v0.6.0</a>.</p>
 <p>A subset of the base modifications present in the modBAM can specified
 For example, passing the option <code>--modified-bases 5mC</code> when the modBAM contains 5mC and 5hmC calls will only produce 5mC records.</p>
 <blockquote class="blockquote-tag blockquote-tag-note">
@@ -252,10 +252,10 @@ For example, passing the option <code>--modified-bases 5mC</code> when the modBA
 <p>If the reference FASTA does not have an index at <code>path/to/reference.fasta.fai</code> one will be created.</p>
 </blockquote>
 <h3 id="syntax-of---modified-bases"><a class="header" href="#syntax-of---modified-bases">Syntax of <code>--modified-bases</code></a></h3>
-<p>You may pass the “long-name” such as “5mC” or a primary base and the “short-name”.
-For example: <code>--modified-bases 5mC 5hmC 6mA</code> and <code>--modified-bases C:m C:h A:a</code> are equivalent.
+<p>You may pass the “long name” such as “5mC” or a primary base and the “short name” separated by a <code>:</code>.
+For example, <code>--modified-bases 5mC 5hmC 6mA</code> and <code>--modified-bases C:m C:h A:a</code> are equivalent.
 ChEBI codes can also be used.
-For example, a to make a pileup for a modBAM with a direct RNA reads you may use: <code>--modified-bases A:17596 A:69426 A:a C:m C:19228 G:19229</code>.</p>
+For example, a to make a pileup for a modBAM with direct RNA reads you may use: <code>--modified-bases A:17596 A:69426 A:a C:m C:19228 G:19229</code>.</p>
 <blockquote class="blockquote-tag blockquote-tag-tip">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"></path></svg>Tip</p>
 <p>If you don’t know which modified bases are present in your modBAM run: <code>modkit modbam check-tags $bam --head 100</code>.</p>
@@ -264,7 +264,8 @@ For example, a to make a pileup for a modBAM with a direct RNA reads you may use
 <p>A reference and <code>--modified-bases</code> is not required, for example:</p>
 <pre><code class="language-bash">modkit pileup path/to/reads.bam output/path/pileup.bed --log-filepath pileup.log
 </code></pre>
-<p>This invocation may be slower than using <code>--modified-bases</code> with a reference.</p>
+<p>This command will produce a bedMethyl record for every position in the reference for which there is at least one base modification call (either modified or unmodified).
+This invocation may be slower than using <code>--modified-bases</code> with a reference.</p>
 <p>In both cases, a single file (described <a href="#description-of-bedmethyl-output">below</a>) with base count summaries will be created.</p>
 <p>The program performs best-practices filtering and manipulation of the raw data stored in the input file.
 For further details see <a href="#partitioning-pass-and-fail-base-modification-calls">filtering modified-base calls</a>.</p>
@@ -394,6 +395,8 @@ As a result, fewer threads are often required to get high throughput.
 For example, increasing threads beyond 8 a 40X human genome BAM will often not yield much benefit.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="migrating-to-modkit-v060-pileup"><a class="header" href="#migrating-to-modkit-v060-pileup">Migrating to Modkit v0.6.0 <code>pileup</code>.</a></h1>
+<p>Addition of <code>--modified-bases</code> is the biggest change in Modkit v0.6.0.
+This option is roughly equivalent to using <code>--motif C 0</code> or <code>--motif A 0</code> to capture base modification calls only a reference bases for which you are interested in their modification status.</p>
 <h2 id="changes-to-pileup-algorithm"><a class="header" href="#changes-to-pileup-algorithm">Changes to pileup algorithm</a></h2>
 <ol>
 <li><code>--ignore</code> option has been removed. This option was often a source of confusion and has been removed in favor of the following alternatives:</li>
@@ -407,18 +410,26 @@ This can be necessary when comparing to results where all base modifications may
 </ul>
 <ol>
 <li>Use <code>--phased</code> instead of <code>--partition-tags</code>.
-The <code>--phased</code> flag is a more performant version of <code>--partition-tags HP</code>.</li>
+The <code>--phased</code> flag is a more performant version of <code>--partition-tags HP</code>.
+Instead of an “ungrouped” bedMethyl table, the <code>combined.bedmethyl[.gz]</code> table contains counts tabulated from all records.</li>
 <li>The <code>--bedgraph</code> flag has been removed.
 The recommended way to create a “trace”-like output file is to make a bedMethyl and either pipe it directly into <code>modkit bedmethyl tobigwig</code> or run the <code>tobigwig</code> command following bedMethyl creation.</li>
 <li>Duplicate read names are no longer logged.</li>
 <li><code>--max-depth</code> removed. Modkit v0.6.0 has a new algorithm that doesn’t use <code>max-depth</code>.
 If you have a modBAM with <strong>very high</strong> depth and you don’t want to tabulate counts for this depth it is currently recommended to subsample the modBAM before using Modkit.</li>
-<li><code>--edge-filter</code>-ed base modification counts are no longer tabulated in N<sub>nocall</sub>, they will be completely ignored from tabulation.</li>
-<li>Simpler threshold mechanism when using <code>--modified-bases</code>.
-Prior to v0.6.0 the threshold evaluation was to take the most likely passing base modification call.
+<li><code>--edge-filter</code>-ed base modification counts are no longer tabulated in N<sub>nocall</sub>, they will be completely ignored from tabulation.
+If this breaks or changes your consumption of these data, please open a GitHub issue.</li>
+<li><code>--modified-bases</code> employs a simpler threshold evaluation algorithm.
+Prior to v0.6.0, the threshold evaluation was to take the most likely passing base modification call.
 This lead to confusion about how to “tune” this parameter to tweak results.
 When using <code>--modified-bases</code> (strongly recommended) the algorithm is now simply to use the most likely call (the one with the highest probability) and determine if it is pass or fail by whether or not it is less than the threshold for that base or modification.
 In almost all cases this simpler algorithm produces the same results and is what the user expected in the first place.</li>
+</ol>
+<h2 id="limitations"><a class="header" href="#limitations">Limitations</a></h2>
+<ol>
+<li>As of v.0.6.0 <code>--modified-bases</code> does not support duplex base modification calls.
+To enable usage of base modification calls on duplex reads, pass the <code>--duplex</code> flag.
+This limitation will be removed in the future.</li>
 <li><code>--combine-strands</code> when using multiple palindromic motifs is no longer implemented.
 If this is a crucial step in your workflow, please open a GitHub issue.
 The new workflow is to run with a single motif and <code>--combine-strands</code> for each motif.
@@ -518,7 +529,7 @@ lowest 10th percentile of calls).</li>
 </tbody>
 </table>
 </div>
-<h2 id="limitations"><a class="header" href="#limitations">Limitations</a></h2>
+<h2 id="limitations-1"><a class="header" href="#limitations-1">Limitations</a></h2>
 <ol>
 <li>Only one motif can be used at a time, this limitation may be removed in a later version.</li>
 <li>Partitioning on tag key:value pairs is not currently supported.</li>
