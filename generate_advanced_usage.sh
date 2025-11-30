@@ -73,7 +73,17 @@ for subcommand in "merge" "tobigwig"; do
   echo "\`\`\`" >> ${doc_file}
 done
 
-for subcommand in "check-tags"; do
+modbam_subcommands=(
+  "adjust-mods"
+  "update-tags"
+  "sample-probs"
+  "summary"
+  "call-mods"
+  "repair"
+  "check-tags"
+)
+
+for subcommand in "${modbam_subcommands[@]}"; do
   echo "" >> ${doc_file}
   echo "## modbam ${subcommand}" >> ${doc_file}
   echo "\`\`\`text" >> ${doc_file}

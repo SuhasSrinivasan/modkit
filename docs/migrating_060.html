@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Working with sequence motifs - Modkit</title>
+        <title>Migrating to v0.6.0 - Modkit</title>
 
 
         <!-- Custom HTML head -->
@@ -177,25 +177,49 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="working-with-sequence-motifs"><a class="header" href="#working-with-sequence-motifs">Working with sequence motifs</a></h1>
-<p>The <code>modkit motif</code> suite contains tools for discovery and exploration of short degenerate sequences (motifs) that may be enriched in a sample.
-A common use case is to discover the motifs enriched for modification in a native bacterial sample which can give indication of methyltransferase enzymes present in the genomes present in the sample.</p>
-<p>The following tools are available:</p>
+                        <h1 id="migrating-to-modkit-v060-pileup"><a class="header" href="#migrating-to-modkit-v060-pileup">Migrating to Modkit v0.6.0 <code>pileup</code>.</a></h1>
+<h2 id="changes-to-pileup-algorithm"><a class="header" href="#changes-to-pileup-algorithm">Changes to pileup algorithm</a></h2>
 <ol>
-<li><a href="./intro_find_motifs.html">Find enriched motifs <em>de novo</em> from a bedMethyl with <code>search</code>.</a></li>
-<li><a href="./evaluate_motif.html"><code>evaluate</code> or <code>refine</code> a table of known motifs</a></li>
-<li><a href="./intro_motif_bed.html">Making a motif BED file with <code>motif bed</code></a></li>
+<li><code>--ignore</code> option has been removed. This option was often a source of confusion and has been removed in favor of the following alternatives:</li>
+</ol>
+<ul>
+<li>Use <code>--modified-bases</code> to emit records for only the base modifications you’re interested in.
+For example, a direct RNA run may have many base modifications on each of the primary sequence bases.
+If you’re only interested in m6A use <code>--modified-bases m6A</code> and only get records with this base modification.</li>
+<li>Use <code>--combine-mods</code> when you want to know if a base is “modified vs unmodified”.
+This can be necessary when comparing to results where all base modifications may be marked as a single base modification.</li>
+</ul>
+<ol>
+<li>Use <code>--phased</code> instead of <code>--partition-tags</code>.
+The <code>--phased</code> flag is a more performant version of <code>--partition-tags HP</code>.</li>
+<li>The <code>--bedgraph</code> flag has been removed.
+The recommended way to create a “trace”-like output file is to make a bedMethyl and either pipe it directly into <code>modkit bedmethyl tobigwig</code> or run the <code>tobigwig</code> command following bedMethyl creation.</li>
+<li>Duplicate read names are no longer logged.</li>
+<li><code>--max-depth</code> removed. Modkit v0.6.0 has a new algorithm that doesn’t use <code>max-depth</code>.
+If you have a modBAM with <strong>very high</strong> depth and you don’t want to tabulate counts for this depth it is currently recommended to subsample the modBAM before using Modkit.</li>
+<li><code>--edge-filter</code>-ed base modification counts are no longer tabulated in N<sub>nocall</sub>, they will be completely ignored from tabulation.</li>
+<li>Simpler threshold mechanism when using <code>--modified-bases</code>.
+Prior to v0.6.0 the threshold evaluation was to take the most likely passing base modification call.
+This lead to confusion about how to “tune” this parameter to tweak results.
+When using <code>--modified-bases</code> (strongly recommended) the algorithm is now simply to use the most likely call (the one with the highest probability) and determine if it is pass or fail by whether or not it is less than the threshold for that base or modification.
+In almost all cases this simpler algorithm produces the same results and is what the user expected in the first place.</li>
+<li><code>--combine-strands</code> when using multiple palindromic motifs is no longer implemented.
+If this is a crucial step in your workflow, please open a GitHub issue.
+The new workflow is to run with a single motif and <code>--combine-strands</code> for each motif.
+Modkit v0.6.0 is substantially quicker and lighter on resource requirements such that running multiple times will likely be quicker than the older versions.</li>
+<li><code>--invert-edge-filter</code> removed.
+This option is still available in <code>modkit modbam adjust-mods</code>.</li>
 </ol>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="intro_repair.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="intro_pileup.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="intro_motif_bed.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="intro_pileup_hemi.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -205,11 +229,11 @@ A common use case is to discover the motifs enriched for modification in a nativ
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="intro_repair.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="intro_pileup.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="intro_motif_bed.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="intro_pileup_hemi.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

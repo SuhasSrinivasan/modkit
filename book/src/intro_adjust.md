@@ -12,12 +12,12 @@ To remove a base modification class from a modBAM and produce a new modBAM, use 
 `--ignore` option for `adjust-mods`.
 
 ```
-modkit adjust-mods input.bam output.adjust.bam --ignore <mod_code_to_ignore>
+modkit modbam adjust-mods input.bam output.adjust.bam --ignore <mod_code_to_ignore>
 ```
 For example the command below will remove 5hmC calls, leaving just 5mC calls.
 
 ```
-modkit adjust-mods input.bam output.adjust.bam --ignore h
+modkit modbam adjust-mods input.bam output.adjust.bam --ignore h
 ```
 For technical details on the transformation see [Removing modification calls from
 BAMs](./collapse.md#removing-dna-base-modification-probabilities).
@@ -33,7 +33,7 @@ example, the command below will convert probabilities associated with `h` probab
 if the second base modification code doesn't exist, the probabilities are left unchanged.
 
 ```
-modkit adjust-mods input.bam output.convert.bam --convert h m
+modkit modbam adjust-mods input.bam output.convert.bam --convert h m
 ```
 
 
@@ -43,13 +43,13 @@ for omission of the MM flag, however this may not be the intent of missing base
 modification probabilities for some models. The command below will add or change the `?` flag to a modBAM.
 
 ```
-modkit adjust-mods input.bam output.bam --mode ambiguous
+modkit modbam adjust-mods input.bam output.bam --mode ambiguous
 ```
 
 Another option is to set the flag to `.`, the "implicitly canonical" mode:
 
 ```
-modkit adjust-mods input.bam output.bam --mode implicit
+modkit modbam adjust-mods input.bam output.bam --mode implicit
 ```
 
 ## Changing the base modification code.
@@ -59,7 +59,7 @@ the [specification](https://samtools.github.io/hts-specs/SAMtags.pdf).
 For example, the following command will change `C+Z,` tags to `C+m,` tags.
 
 ```
-modkit adjust-mods input.bam output.bam --convert Z m
+modkit modbam adjust-mods input.bam output.bam --convert Z m
 ```
 
 ## Filtering to specific motifs

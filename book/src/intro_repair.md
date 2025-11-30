@@ -32,7 +32,7 @@ trimmed.bam # could also be fastq, but would require conversion to BAM
 samtools -n trimmed.bam -O BAM > trimed_read_sort.bam 
 samtools -n basecalls_5mC_5hmC.bam -O BAM > basecalls_5mC_5hmC_read_sort.bam
 
-modkit repair \
+modkit modbam repair \
     --donor-bam basecalls_5mC_5hmC_read_sort.bam \
     --acceptor-bam trimed_read_sort.bam \
     --log-filepath modkit_repair.log \

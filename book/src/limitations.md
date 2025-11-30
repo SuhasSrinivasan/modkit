@@ -2,11 +2,12 @@
 
 Known limitations and forecasts for when they will be removed.
 
-1. During `modkit pileup`, it is assumed that each read should only have one primary alignment. If a read name
-   is detected more than once, the occurrence is logged but both alignments will be used. This limitation may be
-   removed in the future with a form of dynamic de-duplication.
-2. The MAP-based p-value metric ([details](./dmr_scoring_details.md#map-based-p-value)) performs a test that there is a difference in modification (of any kind) between two conditions.
-If a position has multiple base modification calls (such as 5hmC and 5mC) the calls are summed together into a single "modified" count. 
-If a position differs only in the modification _type_ (such as one condition has more 5hmC and the other has more 5mC) this effect will not be captured in the MAP-based p-value. The [likelihood ratio](./dmr_scoring_details.md#likelihood-ratio-scoring-details) test _does_ capture changes in modification type.
-3. The MAP-based p-value is not available when performing DMR on regions.
-This is because there is potentially large variability in the number of modified bases and coverage over regions. This variability translates into varying degrees of statistical power and makes comparisons difficult to interpret.
+1. During `modkit pileup`, it is assumed that each read should only have one primary alignment.
+  If a read has more than one primary alignment it will be double counted, it is therefore recommended to remove duplicates before running Modkit.
+1. The MAP-based p-value metric ([details](./dmr_scoring_details.md#map-based-p-value)) performs a test that there is a difference in modification (of any kind) between two conditions.
+  If a position has multiple base modification calls (such as 5hmC and 5mC) the calls are summed together into a single "modified" count. 
+  If a position differs only in the modification _type_ (such as one condition has more 5hmC and the other has more 5mC) this effect will not be captured in the MAP-based p-value.
+  The [likelihood ratio](./dmr_scoring_details.md#likelihood-ratio-scoring-details) test _does_ capture changes in modification type.
+1. The MAP-based p-value is not available when performing DMR on regions.
+  This is because there is potentially large variability in the number of modified bases and coverage over regions.
+  This variability translates into varying degrees of statistical power and makes comparisons difficult to interpret.
