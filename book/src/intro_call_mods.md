@@ -24,15 +24,15 @@ to 0 and 100%.
 
 ### Estimate the threshold on the fly, apply to modBAM and clamp the modification calls to certainty.
 ```
-modkit call-mods <in.bam> <out.bam>
+modkit modbam call-mods <in.bam> <out.bam>
 ```
 
 ### Specify a filter threshold for your use-case
 ```
-modkit call-mods <in.bam> <out.bam> --filter-threshold A:0.9 --mod-threshold a:0.95 --filter-threshold C:0.97
+modkit modbam call-mods <in.bam> <out.bam> --filter-threshold A:0.9 --mod-threshold a:0.95 --filter-threshold C:0.97
 ```
 
 ### Call mods with the estimated threshold and ignore modification calls within 100 base pairs of the ends of the reds
 ```
-modkit call-mods <in.bam> <out.bam> --edge-filter 100
+modkit modbam call-mods <in.bam> <out.bam> --edge-filter 100
 ```

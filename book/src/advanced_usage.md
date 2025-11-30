@@ -18,32 +18,8 @@ Commands:
   pileup          Tabulates base modification calls across genomic positions.
                   This command produces a bedMethyl formatted file. Schema and
                   description of fields can be found in the README
-  adjust-mods     Performs various operations on BAM files containing base
-                  modification information, such as converting base modification
-                  codes and ignoring modification calls. Produces a BAM output
-                  file
-  update-tags     Renames Mm/Ml to tags to MM/ML. Also allows changing the mode
-                  flag from silent '.' to explicitly '?' or '.'
-  sample-probs    Calculate an estimate of the base modification probability
-                  distribution
-  summary         Summarize the mod tags present in a BAM and get basic
-                  statistics. The default output is a totals table (designated
-                  by '#' lines) and a modification calls table. Descriptions of
-                  the columns can be found in the README
-  call-mods       Call mods from a modbam, creates a new modbam with
-                  probabilities set to 100% if a base modification is called or
-                  0% if called canonical
   extract         Extract read-level base modification information from a modBAM
                   into a tab-separated values table
-  repair          Repair MM and ML tags in one bam with the correct tags from
-                  another. To use this command, both modBAMs _must_ be sorted by
-                  read name. The "donor" modBAM's reads must be a superset of
-                  the acceptor's reads. Extra reads in the donor are allowed,
-                  and multiple reads with the same name (secondary, etc.) are
-                  allowed in the acceptor. Reads with an empty SEQ field cannot
-                  be repaired and will be rejected. Reads where there is an
-                  ambiguous alignment of the acceptor to the donor will be
-                  rejected (and logged). See the full documentation for details
   dmr             Perform DMR test on a set of regions. Output a BED file of
                   regions with the score column indicating the magnitude of the
                   difference. Find the schema and description of fields can in
@@ -2737,6 +2713,628 @@ Logging Options:
 
       --suppress-progress
           Hide the progress bar
+```
+
+## modbam adjust-mods
+```text
+Performs various operations on BAM files containing base modification
+information, such as converting base modification codes and ignoring
+modification calls. Produces a BAM output file
+
+Usage: modkit modbam adjust-mods [OPTIONS] <IN_BAM> <OUT_BAM>
+
+Arguments:
+  <IN_BAM>
+          Input BAM file, can be a path to a file or one of `-` or `stdin` to
+          specify a stream from standard input
+
+  <OUT_BAM>
+          File path to new BAM file to be created. Can be a path to a file or
+          one of `-` or `stdin` to specify a stream from standard output
+
+Options:
+  -f, --ff
+          Fast fail, stop processing at the first invalid sequence record.
+          Default behavior is to continue and report failed/skipped records at
+          the end
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Output Options:
+      --log-filepath <LOG_FILEPATH>
+          Output debug logs to file at this path
+
+      --output-sam
+          Output SAM format instead of BAM
+
+Modified Base Options:
+      --ignore <IGNORE>
+          Modified base code to ignore/remove, see
+          https://samtools.github.io/hts-specs/SAMtags.pdf for details on the
+          modified base codes
+
+      --convert <CONVERT> <CONVERT>
+          Convert one mod-tag to another, summing the probabilities together if
+          the retained mod tag is already present
+
+      --motif <MOTIF> <MOTIF>
+          Filter out any base modification call that isn't part of a basecall
+          sequence motif. This argument can be passed multiple times. Format is
+          <motif_sequence> <offset>. For example the argument to match CpG
+          dinucleotides is `--motif CG 0`, or to match CG[5mC]G the argument
+          would be `--motif CGCG 2`. Single bases can be used as motifs to keep
+          only base modification calls for a specific primary base, for example
+          `--motif C 0`
+
+      --cpg
+          Shorthand for --motif CG 0
+
+      --discard-motifs
+          Discard base modification calls that match the provided motifs
+          (instead of keeping them)
+
+Compute Options:
+  -t, --threads <THREADS>
+          Number of threads to use
+          
+          [default: 4]
+
+Selection Options:
+      --edge-filter <EDGE_FILTER>
+          Discard base modification calls that are this many bases from the
+          start or the end of the read. Two comma-separated values may be
+          provided to asymmetrically filter out base modification calls from the
+          start and end of the reads. For example, 4,8 will filter out base
+          modification calls in the first 4 and last 8 bases of the read
+
+      --invert-edge-filter
+          Invert the edge filter, instead of filtering out base modification
+          calls at the ends of reads, only _keep_ base modification calls at the
+          ends of reads. E.g. if usually, "4,8" would remove (i.e. filter out)
+          base modification calls in the first 4 and last 8 bases of the read,
+          using this flag will keep only base modification calls in the first 4
+          and last 8 bases
+
+      --filter-probs
+          Filter out the lowest confidence base modification probabilities
+
+      --mapped-only
+          Only use base modification probabilities from bases that are aligned
+          when estimating the filter threshold (i.e. ignore soft-clipped, and
+          inserted bases)
+
+Sampling Options:
+  -n, --num-reads <NUM_READS>
+          Sample approximately this many reads when estimating the filtering
+          threshold. If alignments are present reads will be sampled evenly
+          across aligned genome. If a region is specified, either with the
+          --region option or the --sample-region option, then reads will be
+          sampled evenly across the region given. This option is useful for
+          large BAM files. In practice, 10-50 thousand reads is sufficient to
+          estimate the model output distribution and determine the filtering
+          threshold
+          
+          [default: 10042]
+
+      --sample-region <SAMPLE_REGION>
+          Specify a region for sampling reads from when estimating the threshold
+          probability. If this option is not provided, but --region is provided,
+          the genomic interval passed to --region will be used. Format should be
+          <chrom_name>:<start>-<end> or <chrom_name>
+
+      --sampling-interval-size <SAMPLING_INTERVAL_SIZE>
+          Interval chunk size to process concurrently when estimating the
+          threshold probability, can be larger than the pileup processing
+          interval
+          
+          [default: 1000000]
+
+Filtering Options:
+  -p, --filter-percentile <FILTER_PERCENTILE>
+          Filter out modified base calls where the probability of the predicted
+          variant is below this confidence percentile. For example, 0.1 will
+          filter out the 10% lowest confidence modification calls
+          
+          [default: 0.1]
+
+      --filter-threshold <FILTER_THRESHOLD>
+          Specify the filter threshold globally or per primary base. A global
+          filter threshold can be specified with by a decimal number (e.g.
+          0.75). Per-base thresholds can be specified by colon-separated values,
+          for example C:0.75 specifies a threshold value of 0.75 for cytosine
+          modification calls. Additional per-base thresholds can be specified by
+          repeating the option: for example --filter-threshold C:0.75
+          --filter-threshold A:0.70 or specify a single base option and a
+          default for all other bases with: --filter-threshold A:0.70
+          --filter-threshold 0.9 will specify a threshold value of 0.70 for
+          adenine and 0.9 for all other base modification calls
+
+      --mod-threshold <MOD_THRESHOLDS>
+          Specify a passing threshold to use for a base modification,
+          independent of the threshold for the primary sequence base or the
+          default. For example, to set the pass threshold for 5hmC to 0.8 use
+          `--mod-threshold h:0.8`. The pass threshold will still be estimated as
+          usual and used for canonical cytosine and other modifications unless
+          the `--filter-threshold` option is also passed. See the online
+          documentation for more details
+
+Logging Options:
+      --suppress-progress
+          Hide the progress bar
+```
+
+## modbam update-tags
+```text
+Renames Mm/Ml to tags to MM/ML. Also allows changing the mode flag from silent
+'.' to explicitly '?' or '.'
+
+Usage: modkit modbam update-tags [OPTIONS] <IN_BAM> <OUT_BAM>
+
+Arguments:
+  <IN_BAM>   BAM to update modified base tags in. Can be a path to a file or one
+             of `-` or `stdin` to specify a stream from standard input
+  <OUT_BAM>  File to new BAM file to be created or one of `-` or `stdin` to
+             specify a stream from standard output
+
+Options:
+  -m, --mode <MODE>        Mode, change mode to this value, options {'explicit',
+                           'implicit'}. See spec at:
+                           https://samtools.github.io/hts-specs/SAMtags.pdf.
+                           'explicit' ('?') means residues without modification
+                           probabilities will not be assumed canonical or
+                           modified. 'implicit' means residues without explicit
+                           modification probabilities are assumed to be
+                           canonical [possible values: explicit, implicit]
+      --no-implicit-probs  Don't add implicit canonical calls. This flag is
+                           important when converting from one of the implicit
+                           modes ( `.` or `""`) to explicit mode (`?`). By
+                           passing this flag, the bases without associated base
+                           modification probabilities will not be assumed to be
+                           canonical. No base modification probability will be
+                           written for these bases, meaning there is no
+                           information. The mode will automatically be set to
+                           the explicit mode `?`
+  -h, --help               Print help
+
+Compute Options:
+  -t, --threads <THREADS>  Number of threads to use [default: 4]
+
+Logging Options:
+      --log-filepath <LOG_FILEPATH>  Output debug logs to file at this path
+
+Output Options:
+      --output-sam  Output SAM format instead of BAM
+```
+
+## modbam sample-probs
+```text
+Calculate an estimate of the base modification probability distribution
+
+Usage: modkit modbam sample-probs [OPTIONS] <IN_BAM>
+
+Arguments:
+  <IN_BAM>
+          Input BAM with modified base tags. If a index is found reads will be
+          sampled evenly across the length of the reference sequence. Can be a
+          path to a file or one of `-` or `stdin` to specify a stream from
+          standard input
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Compute Options:
+  -t, --threads <THREADS>
+          Number of threads to use
+          
+          [default: 4]
+
+  -i, --interval-size <INTERVAL_SIZE>
+          Interval chunk size in base pairs to process concurrently. Smaller
+          interval chunk sizes will use less memory but incur more overhead.
+          Only used when sampling probs from an indexed bam
+          
+          [default: 1000000]
+
+Logging Options:
+      --log-filepath <LOG_FILEPATH>
+          Specify a file for debug logs to be written to, otherwise ignore them.
+          Setting a file is recommended
+
+      --suppress-progress
+          Hide the progress bar
+
+Output Options:
+  -p, --percentiles <PERCENTILES>
+          Percentiles to calculate, a space separated list of floats
+          
+          [default: 0.1,0.5,0.9]
+
+  -o, --out-dir <OUT_DIR>
+          Directory to deposit result tables into. Required for model
+          probability histogram output
+
+      --prefix <PREFIX>
+          Label to prefix output files with
+
+      --force
+          Overwrite results if present
+
+      --hist
+          Output histogram of base modification prediction probabilities
+
+      --dna-color <PRIMARY_BASE_COLORS> <PRIMARY_BASE_COLORS>
+          Set colors of primary bases in histogram, should be RGB format, e.g.
+          "#0000FF" is defailt for canonical cytosine
+
+      --mod-color <MOD_BASE_COLORS> <MOD_BASE_COLORS>
+          Set colors of modified bases in histogram, should be RGB format, e.g.
+          "#FF00FF" is default for 5hmC
+
+Modified Base Options:
+      --ignore <IGNORE>
+          Ignore a modified base class  _in_situ_ by redistributing base
+          modification probability equally across other options. For example, if
+          collapsing 'h', with 'm' and canonical options, half of the
+          probability of 'h' will be added to both 'm' and 'C'. A full
+          description of the methods can be found in collapse.md
+
+Selection Options:
+      --edge-filter <EDGE_FILTER>
+          Discard base modification calls that are this many bases from the
+          start or the end of the read. Two comma-separated values may be
+          provided to asymmetrically filter out base modification calls from the
+          start and end of the reads. For example, 4,8 will filter out base
+          modification calls in the first 4 and last 8 bases of the read
+
+      --invert-edge-filter
+          Invert the edge filter, instead of filtering out base modification
+          calls at the ends of reads, only _keep_ base modification calls at the
+          ends of reads. E.g. if usually, "4,8" would remove (i.e. filter out)
+          base modification calls in the first 4 and last 8 bases of the read,
+          using this flag will keep only base modification calls in the first 4
+          and last 8 bases
+
+      --region <REGION>
+          Process only the specified region of the BAM when collecting
+          probabilities. Format should be <chrom_name>:<start>-<end> or
+          <chrom_name>
+
+      --include-bed <INCLUDE_BED>
+          Only sample base modification probabilities that are aligned to the
+          positions in this BED file. (alias: include-positions)
+
+      --mapped-only
+          Only use base modification probabilities that are aligned (i.e. ignore
+          soft-clipped, and inserted bases)
+
+Sampling Options:
+  -n, --num-reads <NUM_READS>
+          Approximate maximum number of reads to use, especially recommended
+          when using a large BAM without an index. If an indexed BAM is
+          provided, the reads will be sampled evenly over the length of the
+          aligned reference. If a region is passed with the --region option,
+          they will be sampled over the genomic region. Actual number of reads
+          used may deviate slightly from this number
+          
+          [default: 10042]
+
+  -f, --sampling-frac <SAMPLING_FRAC>
+          Instead of using a defined number of reads, specify a fraction of
+          reads to sample, for example 0.1 will sample 1/10th of the reads
+
+      --no-sampling
+          No sampling, use all of the reads to calculate the filter thresholds
+
+  -s, --seed <SEED>
+          Random seed for deterministic running, the default is
+          non-deterministic, only used when no BAM index is provided
+```
+
+## modbam summary
+```text
+Summarize the mod tags present in a BAM and get basic statistics. The default
+output is a totals table (designated by '#' lines) and a modification calls
+table. Descriptions of the columns can be found in the README
+
+Usage: modkit modbam summary [OPTIONS] <IN_BAM>
+
+Arguments:
+  <IN_BAM>
+          Input modBam, can be a path to a file or one of `-` or `stdin` to
+          specify a stream from standard input
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Compute Options:
+  -t, --threads <THREADS>
+          Number of threads to use
+          
+          [default: 4]
+
+  -i, --interval-size <INTERVAL_SIZE>
+          When using regions, interval chunk size in base pairs to process
+          concurrently. Smaller interval chunk sizes will use less memory but
+          incur more overhead
+          
+          [default: 1000000]
+
+Logging Options:
+      --log-filepath <LOG_FILEPATH>
+          Specify a file for debug logs to be written to, otherwise ignore them.
+          Setting a file is recommended
+
+      --suppress-progress
+          Hide the progress bar
+
+Output Options:
+      --tsv
+          Output summary as a tab-separated variables stdout instead of a table
+
+Sampling Options:
+  -n, --num-reads <NUM_READS>
+          Approximate maximum number of reads to use, especially recommended
+          when using a large BAM without an index. If an indexed BAM is
+          provided, the reads will be sampled evenly over the length of the
+          aligned reference. If a region is passed with the --region option,
+          they will be sampled over the genomic region. Actual number of reads
+          used may deviate slightly from this number
+          
+          [default: 10042]
+
+  -f, --sampling-frac <SAMPLING_FRAC>
+          Instead of using a defined number of reads, specify a fraction of
+          reads to sample when estimating the filter threshold. For example 0.1
+          will sample 1/10th of the reads
+
+      --no-sampling
+          No sampling, use all the reads to calculate the filter thresholds and
+          generating the summary
+
+  -s, --seed <SEED>
+          Sets a random seed for deterministic running (when using
+          --sample-frac), the default is non-deterministic, only used when no
+          BAM index is provided
+
+Filtering Options:
+      --no-filtering
+          Do not perform any filtering, include all base modification calls in
+          the summary. See filtering.md for details on filtering
+
+  -p, --filter-percentile <FILTER_PERCENTILE>
+          Filter out modified base calls where the probability of the predicted
+          variant is below this confidence percentile. For example, 0.1 will
+          filter out the 10% lowest confidence base modification calls
+          
+          [default: 0.1]
+
+      --filter-threshold <FILTER_THRESHOLD>
+          Specify the filter threshold globally or per-base. Global filter
+          threshold can be specified with by a decimal number (e.g. 0.75).
+          Per-base thresholds can be specified by colon-separated values, for
+          example C:0.75 specifies a threshold value of 0.75 for cytosine
+          modification calls. Additional per-base thresholds can be specified by
+          repeating the option: for example --filter-threshold C:0.75
+          --filter-threshold A:0.70 or specify a single base option and a
+          default for all other bases with: --filter-threshold A:0.70
+          --filter-threshold 0.9 will specify a threshold value of 0.70 for
+          adenine and 0.9 for all other base modification calls
+
+      --mod-threshold <MOD_THRESHOLDS>
+          Specify a passing threshold to use for a base modification,
+          independent of the threshold for the primary sequence base or the
+          default. For example, to set the pass threshold for 5hmC to 0.8 use
+          `--mod-threshold h:0.8`. The pass threshold will still be estimated as
+          usual and used for canonical cytosine and other modifications unless
+          the `--filter-threshold` option is also passed. See the online
+          documentation for more details
+
+Modified Base Options:
+      --ignore <IGNORE>
+          Ignore a modified base class  _in_situ_ by redistributing base
+          modification probability equally across other options. For example, if
+          collapsing 'h', with 'm' and canonical options, half of the
+          probability of 'h' will be added to both 'm' and 'C'. A full
+          description of the methods can be found in collapse.md
+
+Selection Options:
+      --edge-filter <EDGE_FILTER>
+          Discard base modification calls that are this many bases from the
+          start or the end of the read. Two comma-separated values may be
+          provided to asymmetrically filter out base modification calls from the
+          start and end of the reads. For example, 4,8 will filter out base
+          modification calls in the first 4 and last 8 bases of the read
+
+      --invert-edge-filter
+          Invert the edge filter, instead of filtering out base modification
+          calls at the ends of reads, only _keep_ base modification calls at the
+          ends of reads. E.g. if usually, "4,8" would remove (i.e. filter out)
+          base modification calls in the first 4 and last 8 bases of the read,
+          using this flag will keep only base modification calls in the first 4
+          and last 8 bases
+
+      --include-bed <INCLUDE_BED>
+          Only summarize base modification probabilities that are aligned to the
+          positions in this BED file. (alias: include-positions)
+
+      --mapped-only
+          Only use base modification probabilities that are aligned (i.e. ignore
+          soft-clipped, and inserted bases)
+
+      --region <REGION>
+          Process only the specified region of the BAM when collecting
+          probabilities. Format should be <chrom_name>:<start>-<end> or
+          <chrom_name>
+```
+
+## modbam call-mods
+```text
+Call mods from a modbam, creates a new modbam with probabilities set to 100% if
+a base modification is called or 0% if called canonical
+
+Usage: modkit modbam call-mods [OPTIONS] <IN_BAM> <OUT_BAM>
+
+Arguments:
+  <IN_BAM>
+          Input BAM, may be sorted and have associated index available. Can be a
+          path to a file or one of `-` or `stdin` to specify a stream from
+          standard input
+
+  <OUT_BAM>
+          Output BAM, can be a path to a file or one of `-` or `stdin` to
+          specify a stream from standard input
+
+Options:
+      --log-filepath <LOG_FILEPATH>
+          Specify a file for debug logs to be written to, otherwise ignore them.
+          Setting a file is recommended
+
+      --ff
+          Fast fail, stop processing at the first invalid sequence record.
+          Default behavior is to continue and report failed/skipped records at
+          the end
+
+      --suppress-progress
+          Hide the progress bar
+
+  -t, --threads <THREADS>
+          Number of threads to use while processing chunks concurrently
+          
+          [default: 4]
+
+  -n, --num-reads <NUM_READS>
+          Sample approximately this many reads when estimating the filtering
+          threshold. If alignments are present reads will be sampled evenly
+          across aligned genome. If a region is specified, either with the
+          --region option or the --sample-region option, then reads will be
+          sampled evenly across the region given. This option is useful for
+          large BAM files. In practice, 10-50 thousand reads is sufficient to
+          estimate the model output distribution and determine the filtering
+          threshold
+          
+          [default: 10042]
+
+  -f, --sampling-frac <SAMPLING_FRAC>
+          Sample this fraction of the reads when estimating the
+          filter-percentile. In practice, 50-100 thousand reads is sufficient to
+          estimate the model output distribution and determine the filtering
+          threshold. See filtering.md for details on filtering
+
+      --seed <SEED>
+          Set a random seed for deterministic running, the default is
+          non-deterministic, only used when no BAM index is provided
+
+      --sample-region <SAMPLE_REGION>
+          Specify a region for sampling reads from when estimating the threshold
+          probability. If this option is not provided, but --region is provided,
+          the genomic interval passed to --region will be used. Format should be
+          <chrom_name>:<start>-<end> or <chrom_name>
+
+      --sampling-interval-size <SAMPLING_INTERVAL_SIZE>
+          Interval chunk size to process concurrently when estimating the
+          threshold probability, can be larger than the pileup processing
+          interval
+          
+          [default: 1000000]
+
+  -p, --filter-percentile <FILTER_PERCENTILE>
+          Filter out modified base calls where the probability of the predicted
+          variant is below this confidence percentile. For example, 0.1 will
+          filter out the 10% lowest confidence modification calls
+          
+          [default: 0.1]
+
+      --filter-threshold <FILTER_THRESHOLD>
+          Specify the filter threshold globally or per primary base. A global
+          filter threshold can be specified with by a decimal number (e.g.
+          0.75). Per-base thresholds can be specified by colon-separated values,
+          for example C:0.75 specifies a threshold value of 0.75 for cytosine
+          modification calls. Additional per-base thresholds can be specified by
+          repeating the option: for example --filter-threshold C:0.75
+          --filter-threshold A:0.70 or specify a single base option and a
+          default for all other bases with: --filter-threshold A:0.70
+          --filter-threshold 0.9 will specify a threshold value of 0.70 for
+          adenine and 0.9 for all other base modification calls
+
+      --mod-threshold <MOD_THRESHOLDS>
+          Specify a passing threshold to use for a base modification,
+          independent of the threshold for the primary sequence base or the
+          default. For example, to set the pass threshold for 5hmC to 0.8 use
+          `--mod-threshold h:0.8`. The pass threshold will still be estimated as
+          usual and used for canonical cytosine and other modifications unless
+          the `--filter-threshold` option is also passed. See the online
+          documentation for more details
+
+      --no-filtering
+          Don't filter base modification calls, assign each base modification to
+          the highest probability prediction
+
+      --edge-filter <EDGE_FILTER>
+          Discard base modification calls that are this many bases from the
+          start or the end of the read. Two comma-separated values may be
+          provided to asymmetrically filter out base modification calls from the
+          start and end of the reads. For example, 4,8 will filter out base
+          modification calls in the first 4 and last 8 bases of the read
+
+      --invert-edge-filter
+          Invert the edge filter, instead of filtering out base modification
+          calls at the ends of reads, only _keep_ base modification calls at the
+          ends of reads. E.g. if usually, "4,8" would remove (i.e. filter out)
+          base modification calls in the first 4 and last 8 bases of the read,
+          using this flag will keep only base modification calls in the first 4
+          and last 8 bases
+
+      --motif <MOTIF> <MOTIF>
+          Filter out any base modification call that isn't part of a basecall
+          sequence motif This argument can be passed multiple times. Format is
+          <motif_sequence> <offset>. For example the argument to match CpG
+          dinucleotides is `--motif CG 0`, or to match CG[5mC]G the argument
+          would be `--motif CGCG 2`
+
+      --cpg
+          Shorthand for --motif CG 0
+
+      --discard-motifs
+          Discard base modification calls that match the provided motifs
+          (instead of keeping them)
+
+      --output-sam
+          Output SAM format instead of BAM
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## modbam repair
+```text
+Repair MM and ML tags in one bam with the correct tags from another. To use this
+command, both modBAMs _must_ be sorted by read name. The "donor" modBAM's reads
+must be a superset of the acceptor's reads. Extra reads in the donor are
+allowed, and multiple reads with the same name (secondary, etc.) are allowed in
+the acceptor. Reads with an empty SEQ field cannot be repaired and will be
+rejected. Reads where there is an ambiguous alignment of the acceptor to the
+donor will be rejected (and logged). See the full documentation for details
+
+Usage: modkit modbam repair [OPTIONS] --donor-bam <DONOR_BAM> --acceptor-bam <ACCEPTOR_BAM> --output-bam <OUTPUT_BAM>
+
+Options:
+  -d, --donor-bam <DONOR_BAM>
+          Donor modBAM with original MM/ML tags. Must be sorted by read name
+  -a, --acceptor-bam <ACCEPTOR_BAM>
+          Acceptor modBAM with reads to have MM/ML base modification data
+          projected on to. Must be sorted by read name
+  -o, --output-bam <OUTPUT_BAM>
+          output modBAM location
+      --log-filepath <LOG_FILEPATH>
+          File to write logs to, it is recommended to use this option as some
+          reads may be rejected and logged here
+  -t, --threads <THREADS>
+          The number of threads to use [default: 4]
+  -h, --help
+          Print help
 ```
 
 ## modbam check-tags

@@ -1,12 +1,12 @@
 # Summarizing a modBAM.
 
-The `modkit summary` sub-command is intended for collecting read-level statistics on either a sample of reads, a region, or an entire modBam.
+The `modkit modbam summary` sub-command is intended for collecting read-level statistics on either a sample of reads, a region, or an entire modBam.
 It is important to note that the default behavior of `modkit summary` is to take a sample of the reads to get a quick estimate.
 
 ## Summarize the base modification calls in a modBAM.
 
 ```
-modkit summary input.bam 
+modkit modbam summary input.bam 
 ```
 
 will output a table similar to this
@@ -54,12 +54,12 @@ The modification calls table follows immediately after the totals table.
 For more details on thresholds see [filtering base modification calls](./filtering.md).
 
 
-By default `modkit summary` will only use ten thousand reads when generating the summary
+By default `modkit modbam summary` will only use ten thousand reads when generating the summary
 (or fewer if the modBAM has fewer than that). To use all of the reads in the modBAM set
 the `--no-sampling` flag.
 
 ```
-modkit summary input.bam --no-sampling
+modkit modbam summary input.bam --no-sampling
 ```
 
 There are `--no-filtering`, `--filter-percentile`, and `--filter-threshold` options that
@@ -68,12 +68,12 @@ can be used with or without sampling.
 ### Passing a threshold directly.
 
 To estimate the pass thresholds on a subset of reads, but then summarize _all_ of the
-reads, there is a two-step process. First, determine the thresholds with `modkit
+reads, there is a two-step process. First, determine the thresholds with `modkit modbam
 sample-probs` (see [usage](./advanced_usage.html#sample-probs) for more details). Then run
-`modkit summary` with the threshold value specified.
+`modkit modbam summary` with the threshold value specified.
 
 ```
-modkit sample-probs input.bam [--sampling-frac <frac> | --num-reads <num>]
+modkit modbam sample-probs input.bam [--sampling-frac <frac> | --num-reads <num>]
 ```
 
 This command will output a table like this:
@@ -86,10 +86,10 @@ This command will output a table like this:
  C     90          0.9941406
 ```
 
-You can then use pass this threshold directly to `modkit summary`:
+You can then use pass this threshold directly to `modkit modbam summary`:
 
 ```
-modkit summary input.bam \
+modkit modbam summary input.bam \
     --filter-threshold 0.6972656 \ # filter 10% lowest confidence calls
     --no-sampling
 ```
