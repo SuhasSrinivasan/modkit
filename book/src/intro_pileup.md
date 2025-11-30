@@ -3,7 +3,7 @@
 A primary use of `modkit` is to create summary counts of modified and unmodified bases in an extended [bedMethyl](https://www.encodeproject.org/data-standards/wgbs/) format.
 bedMethyl files tabulate the counts of base modifications from every sequencing read over each aligned reference genomic position.
 In order to create a bedMethyl table, your modBAM must be aligned to a reference genome or transcriptome.
-Although not required, providing a reference and using the `--modified-bases` option will provide the clearest results and can greatly improve performance (details below).
+Although not required, providing a reference and using the `--modified-bases` option will provide the clearest results with the best computational performance.
 Only **primary alignments** are used in generating the table, it is recommended to mark duplicate alignments before running as multiple primary alignments can be double counted.
 
 ## Recommended usage
@@ -30,7 +30,7 @@ modkit pileup \
 Passing `--modified-bases` not required, but directs Modkit to use optimized routines which will lead to better efficiency.
 This option _does_ require a FASTA reference, and will only emit bedmethyl records for base modifications to the primary sequence base in the reference.
 For example, a command with the option `--modified-bases 5mC 5hmC 6mA` will _not_ have 6mA records on genomic Cytosine locations where a read has a C>A mismatch nor 5mC/5hmC records at genomic Adenine locations.
-For more details on how this option works see [migrating to v0.6.0](./migrating_060.md).
+For more details on how this option changes results from previous versions see [migrating to v0.6.0](./migrating_060.md).
 
 A subset of the base modifications present in the modBAM can specified
 For example, passing the option `--modified-bases 5mC` when the modBAM contains 5mC and 5hmC calls will only produce 5mC records.
@@ -39,10 +39,10 @@ For example, passing the option `--modified-bases 5mC` when the modBAM contains 
 > If the reference FASTA does not have an index at `path/to/reference.fasta.fai` one will be created.
 
 ### Syntax of `--modified-bases`
-You may pass the "long-name" such as "5mC" or a primary base and the "short-name".
-For example: `--modified-bases 5mC 5hmC 6mA` and `--modified-bases C:m C:h A:a` are equivalent.
+You may pass the "long name" such as "5mC" or a primary base and the "short name" separated by a `:`.
+For example, `--modified-bases 5mC 5hmC 6mA` and `--modified-bases C:m C:h A:a` are equivalent.
 ChEBI codes can also be used.
-For example, a to make a pileup for a modBAM with a direct RNA reads you may use: `--modified-bases A:17596 A:69426 A:a C:m C:19228 G:19229`.
+For example, a to make a pileup for a modBAM with direct RNA reads you may use: `--modified-bases A:17596 A:69426 A:a C:m C:19228 G:19229`.
 
 > [!TIP]
 > If you don't know which modified bases are present in your modBAM run: `modkit modbam check-tags $bam --head 100`.
@@ -53,6 +53,8 @@ A reference and `--modified-bases` is not required, for example:
 ```bash
 modkit pileup path/to/reads.bam output/path/pileup.bed --log-filepath pileup.log
 ```
+
+This command will produce a bedMethyl record for every position in the reference for which there is at least one base modification call (either modified or unmodified).
 This invocation may be slower than using `--modified-bases` with a reference.
 
 In both cases, a single file (described [below](#description-of-bedmethyl-output)) with base count summaries will be created.
