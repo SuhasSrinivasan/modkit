@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::bail;
 use itertools::Itertools;
-use log::info;
+use log::{debug, info};
 use log_once::info_once;
 use rust_htslib::bam::{self, Read};
 use rust_lapper as lapper;
@@ -316,7 +316,13 @@ impl StrandedPositionFilter<()> {
                 }
                 lines_processed.inc(1);
             } else {
-                info!("skipping chrom {chrom_name}, not present in BAM header");
+                info_once!(
+                    "some contigs in BED are not present in BAM header and \
+                     will be skipped"
+                );
+                debug!(
+                    "skipping chrom {chrom_name}, not present in BAM header"
+                );
                 warned.insert(chrom_name.to_owned());
                 continue;
             }

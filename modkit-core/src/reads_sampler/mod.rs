@@ -10,7 +10,7 @@ use rust_htslib::bam::{self, Read};
 use rustc_hash::FxHashMap;
 
 use crate::interval_chunks::{
-    ChromCoordinates, ReferenceIntervalsFeeder, TotalLength,
+    ChromCoordinates, ReferenceIntervalBatchesFeeder, TotalLength,
 };
 use crate::mod_bam::{CollapseMethod, EdgeFilter};
 use crate::monoid::Moniod;
@@ -190,7 +190,7 @@ where
         .map(|rec| (rec.tid, rec.length))
         .collect::<FxHashMap<u32, u32>>();
 
-    let feeder = ReferenceIntervalsFeeder::new(
+    let feeder = ReferenceIntervalBatchesFeeder::new(
         contigs,
         batch_size,
         interval_size,

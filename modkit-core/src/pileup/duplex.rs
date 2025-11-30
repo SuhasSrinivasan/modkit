@@ -4,12 +4,12 @@ use std::path::Path;
 
 use anyhow::bail;
 use derive_new::new;
-use log::debug;
 use rust_htslib::bam::{self, FetchDefinition, Read};
 use rustc_hash::FxHashMap;
 
-use crate::interval_chunks::{FocusPositions, MultiChromCoordinates};
+use crate::interval_chunks::{FocusPositions2, MultiChromCoordinates};
 use crate::mod_bam::{DuplexModCall, DuplexPattern, EdgeFilter};
+use crate::motifs::motif_bed::MotifInfo;
 use crate::pileup::{get_forward_read_base, PileupIter, PileupNumericOptions};
 use crate::read_cache::DuplexReadCache;
 use crate::threshold_mod_caller::MultipleThresholdModCaller;
@@ -213,6 +213,7 @@ pub fn process_region_duplex_batch<T: AsRef<Path> + Copy>(
     pileup_numeric_options: &PileupNumericOptions,
     force_allow: bool,
     max_depth: u32,
+    motif: MotifInfo,
     edge_filter: Option<&EdgeFilter>,
 ) -> Vec<anyhow::Result<DuplexModBasePileup>> {
     chromosome_coordintes
@@ -229,6 +230,7 @@ pub fn process_region_duplex_batch<T: AsRef<Path> + Copy>(
                 force_allow,
                 max_depth,
                 &chrom_coords.focus_positions,
+                motif,
                 edge_filter,
             )
         })
@@ -244,12 +246,18 @@ fn process_region_duplex<T: AsRef<Path>>(
     pileup_numeric_options: &PileupNumericOptions,
     force_allow: bool,
     max_depth: u32,
-    focus_positions: &FocusPositions,
+    focus_positions: &FocusPositions2,
+    motif: MotifInfo,
     edge_filter: Option<&EdgeFilter>,
 ) -> anyhow::Result<DuplexModBasePileup> {
-    let positions_to_motifs = match focus_positions {
-        FocusPositions::MotifCombineStrands { positive_motifs, .. } => {
-            positive_motifs
+    let mask = match focus_positions {
+        FocusPositions2::SimpleMask { mask, num_motifs }
+            if *num_motifs == 1 =>
+        {
+            mask
+        }
+        FocusPositions2::SimpleMask { num_motifs, .. } if *num_motifs > 1 => {
+            bail!("currently, only 1 motif supported for duplex pileup")
         }
         _ => bail!("duplex requires a motif"),
     };
@@ -278,15 +286,14 @@ fn process_region_duplex<T: AsRef<Path>>(
         tmp_pileup
     };
 
-    let pileup_iter =
-        PileupIter::new(hts_pileup, start_pos, end_pos, focus_positions);
+    let pileup_iter = PileupIter::new(hts_pileup, start_pos, end_pos, mask);
 
     for (pileup, motif) in pileup_iter.filter_map(|pileup| {
-        let motifs = positions_to_motifs.get(&pileup.bam_pileup.pos())?;
-        if motifs.len() > 1 {
-            debug!("more than 1 motif not supported yet");
-        };
-        let (motif, _idx) = &motifs[0];
+        // let motifs = positions_to_motifs.get(&pileup.bam_pileup.pos())?;
+        // if motifs.len() > 1 {
+        //     debug!("more than 1 motif not supported yet");
+        // };
+        // let (motif, _idx) = &motifs[0];
         Some((pileup, motif))
     }) {
         let pos = pileup.bam_pileup.pos();
@@ -316,7 +323,7 @@ fn process_region_duplex<T: AsRef<Path>>(
             }
             let read_base = read_base.unwrap();
             if let Some(duplex_mod_call) =
-                read_cache.get_duplex_mod_call(&record, pos, read_base, motif)
+                read_cache.get_duplex_mod_call(&record, pos, read_base, &motif)
             {
                 feature_vector.add_feature(
                     DuplexFeature::ModCall(duplex_mod_call),

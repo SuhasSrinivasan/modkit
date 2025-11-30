@@ -465,12 +465,12 @@ impl KmerTable {
     }
 
     fn get_matching_contexts(
-        &self,
+        &'_ self,
         motif: &EnrichedMotif,
         mask: &FxHashSet<KmerRef>,
         focus_position: usize,
         canonical_base: u8,
-    ) -> Vec<(KmerRef, u32)> {
+    ) -> Vec<(KmerRef<'_>, u32)> {
         self.counts
             .par_iter()
             .filter(|(kmer, _)| !mask.contains(kmer.as_slice()))
@@ -705,11 +705,11 @@ impl<'a> KmerSubset<'a> {
 
     #[inline]
     fn get_mod_contexts(
-        &self,
+        &'_ self,
         motif: &EnrichedMotif,
         high_mod: bool,
         focus_position: usize,
-    ) -> Vec<(KmerRef, u32)> {
+    ) -> Vec<(KmerRef<'_>, u32)> {
         let table =
             if high_mod { &self.high_mod_table } else { &self.low_mod_table };
 
@@ -726,18 +726,18 @@ impl<'a> KmerSubset<'a> {
     }
 
     fn get_high_mod_contexts(
-        &self,
+        &'_ self,
         motif: &EnrichedMotif,
         focus_position: usize,
-    ) -> Vec<(KmerRef, u32)> {
+    ) -> Vec<(KmerRef<'_>, u32)> {
         self.get_mod_contexts(motif, true, focus_position)
     }
 
     fn get_low_mod_contexts(
-        &self,
+        &'_ self,
         motif: &EnrichedMotif,
         focus_position: usize,
-    ) -> Vec<(KmerRef, u32)> {
+    ) -> Vec<(KmerRef<'_>, u32)> {
         self.get_mod_contexts(motif, false, focus_position)
     }
 }
@@ -938,10 +938,10 @@ impl KmerModificationDb {
     }
 
     fn get_high_mod_contexts(
-        &self,
+        &'_ self,
         motif: &EnrichedMotif,
         mask: &FxHashSet<KmerRef>,
-    ) -> Vec<(KmerRef, u32)> {
+    ) -> Vec<(KmerRef<'_>, u32)> {
         self.high_mod_table.get_matching_contexts(
             motif,
             mask,
@@ -951,10 +951,10 @@ impl KmerModificationDb {
     }
 
     fn get_low_mod_contexts(
-        &self,
+        &'_ self,
         motif: &EnrichedMotif,
         mask: &FxHashSet<KmerRef>,
-    ) -> Vec<(KmerRef, u32)> {
+    ) -> Vec<(KmerRef<'_>, u32)> {
         self.low_mod_table.get_matching_contexts(
             motif,
             mask,

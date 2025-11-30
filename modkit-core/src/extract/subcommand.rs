@@ -19,7 +19,7 @@ use crate::extract::args::InputArgs;
 use crate::extract::util::ReferencePositionFilter;
 use crate::extract::writer::{OutwriterWithMemory, TsvWriterWithContigNames};
 use crate::fasta::HtsLibFastaRecords;
-use crate::interval_chunks::ReferenceIntervalsFeeder;
+use crate::interval_chunks::ReferenceIntervalBatchesFeeder;
 use crate::mod_bam::CollapseMethod;
 use crate::mod_base_code::ModCodeRepr;
 use crate::motifs::motif_bed::MotifPositionLookup;
@@ -77,7 +77,7 @@ impl EntryExtractFull {
         master_progress_bar: &MultiProgress,
         thread_pool: &ThreadPool,
     ) -> anyhow::Result<(
-        Option<ReferenceIntervalsFeeder>,
+        Option<ReferenceIntervalBatchesFeeder>,
         ReferencePositionFilter,
         Option<MotifPositionLookup>,
     )> {

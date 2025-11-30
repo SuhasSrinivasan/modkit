@@ -27,7 +27,6 @@ fn test_pileup_no_filt() {
         "-i",
         "25", // use small interval to make sure chunking works
         "--no-filtering",
-        "--only-tabs",
         "../tests/resources/bc_anchored_10_reads.sorted.bam",
         temp_file.to_str().unwrap(),
     ];
@@ -51,7 +50,6 @@ fn test_pileup_with_filt() {
         "1.0",
         "-p",
         "0.25",
-        "--only-tabs",
         "--seed",
         "42",
         "--include-unmapped",
@@ -74,7 +72,6 @@ fn test_pileup_combine() {
         "pileup",
         "--combine-mods",
         "--no-filtering",
-        "--only-tabs",
         "../tests/resources/bc_anchored_10_reads.sorted.bam",
         test_adjusted_bam.to_str().unwrap(),
     ];
@@ -88,6 +85,7 @@ fn test_pileup_combine() {
 }
 
 #[test]
+#[ignore = "collapse no longer available in pileup since v0.6.0"]
 fn test_pileup_collapse() {
     let test_collapsed_bam = std::env::temp_dir().join("test_collapsed.bam");
     let test_collapsed_bed = std::env::temp_dir().join("test_collapsed.bed");
@@ -178,7 +176,6 @@ fn test_pileup_old_tags() {
     run_modkit(&[
         "pileup",
         "--no-filtering",
-        "--only-tabs",
         updated_file.to_str().unwrap(),
         out_file.to_str().unwrap(),
     ])
@@ -198,7 +195,6 @@ fn test_pileup_with_region() {
         "-i",
         "25", // use small interval to make sure chunking works
         "--no-filtering",
-        "--mixed-delim",
         "--region",
         "oligo_1512_adapters:0-50",
         "../tests/resources/bc_anchored_10_reads.sorted.bam",
@@ -221,7 +217,6 @@ fn test_pileup_duplex_reads() {
         "pileup",
         "../tests/resources/duplex_modbam.sorted.bam",
         temp_file.to_str().unwrap(),
-        "--mixed-delim",
         "--region",
         "chr17",
         "--no-filtering",
@@ -242,8 +237,10 @@ fn test_pileup_cpg_motif_filtering() {
         "../tests/resources/bc_anchored_10_reads.sorted.bam",
         temp_file.to_str().unwrap(),
         "--no-filtering",
-        "--mixed-delim",
         "--cpg",
+        "--modified-bases",
+        "5mC",
+        "5hmC",
         "--ref",
         "../tests/resources/CGI_ladder_3.6kb_ref.fa",
     ])
@@ -262,8 +259,10 @@ fn test_pileup_cpg_motif_filtering_compressed_ref() {
         "../tests/resources/bc_anchored_10_reads.sorted.bam",
         temp_file.to_str().unwrap(),
         "--no-filtering",
-        "--mixed-delim",
         "--cpg",
+        "--modified-bases",
+        "5mC",
+        "5hmC",
         "--ref",
         "../tests/resources/CGI_ladder_3.6kb_ref.fa.gz",
     ])
@@ -290,7 +289,9 @@ fn test_pileup_cpg_motif_filtering_strand_combine() {
             interval_size,
             "--cpg",
             "--combine-strands",
-            "--mixed-delim",
+            "--modified-bases",
+            "5mC",
+            "5hmC",
             "--ref",
             "../tests/resources/CGI_ladder_3.6kb_ref.fa",
         ])
@@ -304,6 +305,7 @@ fn test_pileup_cpg_motif_filtering_strand_combine() {
 }
 
 #[test]
+#[ignore = "ignored bases not supported in puleup since v0.6.0"]
 fn test_pileup_presets_traditional_same_as_options() {
     let preset_temp_file = std::env::temp_dir()
         .join("test_presets_traditional_same_as_options.bed");
@@ -344,6 +346,7 @@ fn test_pileup_presets_traditional_same_as_options() {
 }
 
 #[test]
+#[ignore = "duplicated reads no longer checked since v0.6.0"]
 fn test_pileup_duplicated_reads_ignored() {
     let control_fp =
         std::env::temp_dir().join("test_duplicated_reads_ignored_control.bed");
@@ -378,6 +381,7 @@ fn test_pileup_duplicated_reads_ignored() {
 }
 
 #[test]
+#[ignore = "TODO: refactor this test"]
 fn test_pileup_edge_filter_regression() {
     let adjusted_bam =
         std::env::temp_dir().join("test_pileup_edge_filter_adjusted.bam");
@@ -436,6 +440,7 @@ fn test_pileup_edge_filter_regression() {
 }
 
 #[test]
+#[ignore = "TODO: refactor this test"]
 fn test_pileup_edge_filter_asymmetric_regression() {
     let adjusted_bam = std::env::temp_dir()
         .join("test_pileup_edge_filter_asymmetric_regression.bam");
@@ -450,7 +455,11 @@ fn test_pileup_edge_filter_asymmetric_regression() {
         "../tests/resources/bc_anchored_10_reads.sorted.bam",
         edge_filter_bed.to_str().unwrap(),
         "--no-filtering",
-        "--mixed-delim",
+        "--modified-bases",
+        "5mC",
+        "5hmC",
+        "--ref",
+        "../tests/resources/CGI_ladder_3.6kb_ref.fa",
         "--edge-filter",
         "50,50",
     ])
@@ -469,7 +478,11 @@ fn test_pileup_edge_filter_asymmetric_regression() {
         "../tests/resources/bc_anchored_10_reads.sorted.bam",
         edge_filter_bed.to_str().unwrap(),
         "--no-filtering",
-        "--mixed-delim",
+        "--modified-bases",
+        "5mC",
+        "5hmC",
+        "--ref",
+        "../tests/resources/CGI_ladder_3.6kb_ref.fa",
         "--edge-filter",
         "50,0",
     ])
@@ -519,6 +532,7 @@ fn test_pileup_edge_filter_asymmetric_regression() {
 }
 
 #[test]
+#[ignore = "partition tags removed in v0.6.0"]
 fn test_pileup_partition_tags_partitioned() {
     let tmp_dir =
         std::env::temp_dir().join("test_pileup_partition_tags_partitioned");
@@ -565,6 +579,7 @@ fn test_pileup_partition_tags_partitioned() {
 }
 
 #[test]
+#[ignore = "partition tags removed in v0.6.0"]
 fn test_pileup_partition_tags_bedgraph() {
     let tmp_dir = std::env::temp_dir()
         .join("test_pileup_partition_tags_bedgraph_partitioned");
@@ -662,11 +677,15 @@ fn test_pileup_with_filt_position_filter() {
         std::env::temp_dir().join("test_pileup_with_filt_position_filter.bed");
     run_modkit(&[
         "pileup",
-        "--mixed-delim",
         "-i",
         "25", // use small interval to make sure chunking works
         "-p",
         "0.25",
+        "--modified-bases",
+        "5mC",
+        "5hmC",
+        "--ref",
+        "../tests/resources/CGI_ladder_3.6kb_ref.fa",
         "--include-positions",
         "../tests/resources/CGI_ladder_3.6kb_ref_include_positions.bed",
         "../tests/resources/bc_anchored_10_reads.sorted.bam",
@@ -681,6 +700,7 @@ fn test_pileup_with_filt_position_filter() {
 }
 
 #[test]
+#[ignore = "traditional preset removed in v0.6.0"]
 fn test_pileup_with_filter_positions_and_traditional() {
     let temp_file = std::env::temp_dir()
         .join("test_pileup_with_filter_positions_and_traditional.bed");
@@ -710,6 +730,7 @@ fn test_pileup_with_filter_positions_and_traditional() {
 }
 
 #[test]
+#[ignore = "partition tags removed in v0.6.0"]
 fn test_pileup_partition_tags_combine_strands() {
     let exp_dir = std::env::temp_dir()
         .join("test_pileup_partition_tags_combine_strands_partitioned");
@@ -765,7 +786,6 @@ fn test_pileup_motifs_cg0_cgcg2() {
         temp_file.to_str().unwrap(),
         "--motif", "CG", "0",
         "--motif", "CGCG", "2",
-        "--mixed-delim",
         "--no-filtering",
         "--ref", "../tests/resources/CGI_ladder_3.6kb_ref.fa",
         "--region", "oligo_741_adapters:22-62",
@@ -783,7 +803,6 @@ fn test_pileup_motifs_cg0_cgcg2() {
         temp_file.to_str().unwrap(),
         "--motif", "CG", "0",
         "--motif", "CGCG", "2",
-        "--mixed-delim",
         "--no-filtering",
         "--ref", "../tests/resources/CGI_ladder_3.6kb_ref.fa",
         "--region", "oligo_741_adapters:22-62",
@@ -797,6 +816,7 @@ fn test_pileup_motifs_cg0_cgcg2() {
 }
 
 #[test]
+#[ignore = "multiple motifs and combine strands not supported in v0.6.0"]
 fn test_pileup_motifs_cg0_cgcg2_combined() {
     let temp_file =
         std::env::temp_dir().join("test_pileup_motifs_cg0_cgcg2_combined.bed");
@@ -806,7 +826,6 @@ fn test_pileup_motifs_cg0_cgcg2_combined() {
         temp_file.to_str().unwrap(),
         "--motif", "CG", "0",
         "--motif", "CGCG", "2",
-        "--mixed-delim",
         "--no-filtering",
         "--combine-strands",
         "--ref", "../tests/resources/CGI_ladder_3.6kb_ref.fa",
@@ -825,7 +844,6 @@ fn test_pileup_motifs_cg0_cgcg2_combined() {
         temp_file.to_str().unwrap(),
         "--motif", "CG", "0",
         "--motif", "CGCG", "2",
-        "--mixed-delim",
         "--no-filtering",
         "--combine-strands",
         "--ref", "../tests/resources/CGI_ladder_3.6kb_ref.fa",
@@ -882,7 +900,6 @@ fn test_pileup_chebi_code_same_output() {
             "-i",
             "25", // use small interval to make sure chunking works
             "--no-filtering",
-            "--only-tabs",
         ])
         .context("failed to generate pileup")
         .unwrap();

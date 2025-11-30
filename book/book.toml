@@ -1,10 +1,11 @@
 [book]
 authors = ["Art Rand"]
 language = "en"
-multilingual = false
+# multilingual = false
 src = "src"
 title = "Modkit"
 
 [output.html]
 mathjax-support = true
+admonitions = true
 additional-css = ["custom.css"]

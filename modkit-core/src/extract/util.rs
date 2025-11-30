@@ -1,6 +1,6 @@
 use crate::extract::args::InputArgs;
 use crate::interval_chunks::{
-    ReferenceIntervalsFeeder, TotalLength, WithPrevEnd,
+    ReferenceIntervalBatchesFeeder, TotalLength, WithPrevEnd,
 };
 use crate::mod_bam::{CollapseMethod, EdgeFilter, TrackingModRecordIter};
 use crate::monoid::Moniod;
@@ -136,7 +136,7 @@ pub(super) fn load_regions(
     master_progress_bar: &MultiProgress,
     thread_pool: &ThreadPool,
 ) -> anyhow::Result<(
-    Option<ReferenceIntervalsFeeder>,
+    Option<ReferenceIntervalBatchesFeeder>,
     ReferencePositionFilter,
     Option<MotifPositionLookup>,
 )> {
@@ -328,7 +328,7 @@ pub(super) fn load_regions(
                         reference_records
                     };
 
-                let feeder = ReferenceIntervalsFeeder::new(
+                let feeder = ReferenceIntervalBatchesFeeder::new(
                     reference_records,
                     (input_args.threads as f32 * 1.5f32).floor() as usize,
                     input_args.interval_size,
@@ -369,7 +369,7 @@ pub(super) fn load_regions(
 pub(super) fn run_extract_reads(
     mut reader: bam::Reader,
     in_bam: String,
-    references_and_intervals: Option<ReferenceIntervalsFeeder>,
+    references_and_intervals: Option<ReferenceIntervalBatchesFeeder>,
     schedule: Option<SamplingSchedule>,
     collapse_method: Option<CollapseMethod>,
     edge_filter: Option<EdgeFilter>,

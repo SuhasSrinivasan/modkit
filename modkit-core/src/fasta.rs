@@ -1,27 +1,30 @@
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::{bail, Context};
+use bitvec::bitvec;
+use bitvec::vec::BitVec;
+use itertools::Itertools;
 use log::debug;
 use rayon::prelude::*;
 use rust_htslib::faidx;
-use rust_lapper::{Interval, Lapper};
 use rustc_hash::FxHashMap;
+use substring::Substring;
 
 use crate::errs::{MkError, MkResult};
-use crate::motifs::motif_bed::{
-    find_motif_hits, MotifLocations, MultipleMotifLocations, RegexMotif,
-};
+use crate::interval_chunks::FocusPositions2;
+use crate::motifs::motif_bed::{find_motif_hits, MotifInfo, RegexMotif};
 use crate::position_filter::StrandedPositionFilter;
-use crate::util::StrandRule;
+use crate::util::Strand;
 
 struct HtsFastaHandle {
     fasta_fp: PathBuf,
     contigs: FxHashMap<String, u64>,
+    preloaded: bool,
+    sequences: FxHashMap<String, String>,
 }
 
 impl HtsFastaHandle {
-    fn from_file(fp: &PathBuf) -> anyhow::Result<Self> {
+    fn from_file(fp: &PathBuf, preload: bool) -> anyhow::Result<Self> {
         let tmp_reader = faidx::Reader::from_path(fp)?;
         let contigs = (0..tmp_reader.n_seqs()).try_fold(
             FxHashMap::default(),
@@ -38,7 +41,31 @@ impl HtsFastaHandle {
             },
         )?;
 
-        Ok(Self { fasta_fp: fp.to_owned(), contigs })
+        let sequences = if preload {
+            let fasta_reader = bio::io::fasta::Reader::from_file(fp)?;
+            fasta_reader
+                .records()
+                .map_ok(|x| {
+                    (
+                        x.id().to_string(),
+                        x.seq().iter().map(|b| *b as char).collect::<String>(),
+                    )
+                })
+                .collect::<Result<FxHashMap<String, String>, _>>()?
+        } else {
+            FxHashMap::default()
+        };
+
+        if preload {
+            debug!("preloaded {} sequences", sequences.len());
+        }
+
+        Ok(Self {
+            fasta_fp: fp.to_owned(),
+            contigs,
+            sequences,
+            preloaded: preload,
+        })
     }
 
     fn get_sequence(
@@ -51,16 +78,27 @@ impl HtsFastaHandle {
             if end > *length {
                 Err(MkError::InvalidReferenceCoordinates)
             } else {
-                let tmp_reader = faidx::Reader::from_path(&self.fasta_fp)
-                    .map_err(|e| MkError::HtsLibError(e))?;
-                let seq = tmp_reader
-                    .fetch_seq_string(contig, start as usize, end as usize)
-                    .map_err(|e| MkError::HtsLibError(e))?;
+                let seq = if self.preloaded
+                    && self.sequences.get(contig).is_some()
+                {
+                    let s = self.sequences.get(contig).unwrap();
+                    s.substring(start as usize, end as usize).to_string()
+                } else {
+                    let tmp_reader = faidx::Reader::from_path(&self.fasta_fp)
+                        .map_err(|e| MkError::HtsLibError(e))?;
+                    tmp_reader
+                        .fetch_seq_string(contig, start as usize, end as usize)
+                        .map_err(|e| MkError::HtsLibError(e))?
+                };
                 Ok(seq)
             }
         } else {
             Err(MkError::ContigMissing(contig.to_string()))
         }
+    }
+
+    fn has_sequence(&self, seq_name: &str) -> bool {
+        self.contigs.contains_key(seq_name)
     }
 }
 
@@ -113,16 +151,21 @@ pub struct MotifLocationsLookup {
 }
 
 impl MotifLocationsLookup {
+    pub(crate) fn has_sequence(&self, seq_name: &str) -> bool {
+        self.reader.has_sequence(seq_name)
+    }
+
     pub fn from_paths(
         fasta_fp: &PathBuf,
         mask: bool,
         _index_fp: Option<&PathBuf>,
         motifs: Vec<RegexMotif>,
+        preload: bool,
     ) -> anyhow::Result<Self> {
         if motifs.is_empty() {
             bail!("motifs is empty, are you sure you want to make a lookup?");
         }
-        let reader = HtsFastaHandle::from_file(fasta_fp)?;
+        let reader = HtsFastaHandle::from_file(fasta_fp, preload)?;
         let longest_motif_length =
             motifs.iter().map(|m| m.length() as u64).max().unwrap();
 
@@ -136,141 +179,109 @@ impl MotifLocationsLookup {
         start: u64,
         tid: u32,
         stranded_position_filter: Option<&StrandedPositionFilter<()>>,
-    ) -> MultipleMotifLocations {
-        let motif_locations = self
-            .motifs
-            .par_iter()
-            .map(|motif| {
-                let positions = find_motif_hits(seq, &motif)
+    ) -> BitVec {
+        debug_assert!(!self.motifs.is_empty());
+        let num_motifs = self.motifs.len();
+        assert!(num_motifs < u8::MAX as usize);
+        let bits_per_pos = self.motifs.len() * 2; // two strands
+        let mut mask = bitvec![0; seq.len() * bits_per_pos];
+
+        for (offset, motif) in self.motifs.iter().enumerate() {
+            let positions = if let Some(spf) = stranded_position_filter {
+                find_motif_hits(seq, motif)
                     .into_par_iter()
-                    .map(|(pos, strand)| (pos as u64 + start, strand))
-                    .filter_map(|(pos, strand)| {
-                        if let Some(position_filter) = stranded_position_filter
-                        {
-                            if position_filter.contains(tid as i32, pos, strand)
-                            {
-                                Some((pos as u32, strand))
-                            } else {
-                                None
-                            }
-                        } else {
-                            Some((pos as u32, strand))
-                        }
+                    .filter(|(pos, strand)| {
+                        spf.contains(
+                            tid as i32,
+                            (*pos as u64).saturating_add(start),
+                            *strand,
+                        )
                     })
-                    .fold(
-                        || BTreeMap::<u32, StrandRule>::new(),
-                        |mut acc, (pos, strand)| {
-                            if let Some(strand_rule) = acc.get_mut(&pos) {
-                                *strand_rule = strand_rule.absorb(strand);
-                            } else {
-                                acc.insert(pos, strand.into());
-                            }
-                            acc
-                        },
-                    )
-                    .reduce(
-                        || BTreeMap::<u32, StrandRule>::new(),
-                        |a, b| a.into_iter().chain(b).collect(),
-                    );
-                let tid_to_motif_positions =
-                    FxHashMap::from_iter([(tid, positions)]);
-                MotifLocations::new(tid_to_motif_positions, motif.clone())
-            })
-            .collect::<Vec<MotifLocations>>();
-        MultipleMotifLocations::new(motif_locations)
+                    .collect::<Vec<(usize, Strand)>>()
+            } else {
+                find_motif_hits(seq, motif)
+            };
+            for (pos, strand) in positions {
+                match strand {
+                    Strand::Positive => {
+                        mask.set((pos * bits_per_pos) + offset, true)
+                    }
+                    Strand::Negative => mask.set(
+                        ((pos * bits_per_pos) + num_motifs) + offset,
+                        true,
+                    ),
+                }
+            }
+        }
+        mask
     }
 
     fn get_motif_positions_combine_strands(
         &mut self,
         contig: &str,
         tid: u32,
-        ref_end: u64,
+        _ref_end: u64,
         range: std::ops::Range<u64>,
         stranded_position_filter: Option<&StrandedPositionFilter<()>>,
-    ) -> anyhow::Result<(MultipleMotifLocations, u32)> {
+    ) -> MkResult<(FocusPositions2, u32)> {
+        let ref_end = *self.reader.contigs.get(contig).ok_or_else(|| {
+            MkError::ContigMissing(format!("{contig} not in FASTA index"))
+        })?;
         let buffer_size = self.longest_motif_length * 5;
+        let num_motifs = self.motifs.len();
+        let bits_per_pos = (num_motifs * 2) as u64; // two strands
         let mut end = range.end;
         let mut end_w_buffer = std::cmp::min(range.end + buffer_size, ref_end);
-        let mut too_close =
-            end_w_buffer.saturating_sub(self.longest_motif_length);
-        'fetch_loop: loop {
+        let mask = 'fetch_loop: loop {
             let seq =
                 self.reader.get_sequence(contig, range.start, end_w_buffer)?;
             let seq = if self.mask { seq } else { seq.to_ascii_uppercase() };
-            let motif_locations = self.get_motifs_on_seq(
+            let mask = self.get_motifs_on_seq(
                 &seq,
                 range.start,
                 tid,
                 stranded_position_filter,
             );
+            let mut end_idx = ((end - range.start - 1) * bits_per_pos) as usize;
+            assert!(
+                (end_idx + num_motifs) < mask.len(),
+                "off the end {} {}",
+                end_idx + num_motifs,
+                mask.len()
+            );
 
-            let motif_ivs = motif_locations
-                .motif_locations
-                .iter()
-                .flat_map(|mls| {
-                    let adj = mls
-                        .motif_length()
-                        .checked_sub(mls.motif().forward_offset())
-                        .unwrap_or(mls.motif_length())
-                        as u64;
-
-                    let locations = mls.get_locations_unchecked(tid);
-                    locations.iter().map(move |(pos, _)| Interval {
-                        start: *pos as u64,
-                        stop: (*pos as u64) + adj,
-                        val: (),
-                    })
-                })
-                .collect::<Vec<_>>();
-            let intervals = {
-                let mut tmp = Lapper::new(motif_ivs);
-                tmp.merge_overlaps();
-                tmp.set_cov();
-                tmp
-            };
-            let search_end = if let Some(iv) =
-                intervals.find(end.saturating_sub(1), end).next()
-            {
-                iv.stop
-            } else {
-                end
-            };
-
-            if (search_end < too_close) || (end_w_buffer >= ref_end) {
-                let motif_locations = motif_locations
-                    .motif_locations
-                    .into_iter()
-                    .map(|mls| {
-                        let locations = mls
-                            .tid_to_motif_positions
-                            .into_iter()
-                            .map(|(tid, poss)| {
-                                let filt = poss
-                                    .into_iter()
-                                    .filter(|(p, _)| *p as u64 <= search_end)
-                                    .collect::<_>();
-                                (tid, filt)
-                            })
-                            .collect();
-                        MotifLocations::new(locations, mls.motif)
-                    })
-                    .collect();
-                return Ok((
-                    MultipleMotifLocations::new(motif_locations),
-                    search_end as u32,
-                ));
-            } else {
-                debug!("too close, re-fetching");
-                end = end_w_buffer;
-                end_w_buffer += buffer_size;
-                too_close =
-                    end_w_buffer.saturating_sub(self.longest_motif_length);
-                continue 'fetch_loop;
+            while mask[end_idx..(end_idx + num_motifs)].any() {
+                debug!("end_idx ({end_idx}) hits a motif.. end={end}",);
+                end = std::cmp::min(
+                    end.saturating_add(self.longest_motif_length),
+                    ref_end,
+                );
+                end_idx = ((end - range.start - 1) * bits_per_pos) as usize;
+                debug!(
+                    "moved end_idx to {end_idx}, end={end} ref_end={ref_end}, \
+                     contig={contig}, range={range:?}"
+                );
+                debug_assert!(end_idx + num_motifs < mask.len());
+                if end >= end_w_buffer {
+                    debug!("too close, re-fetching..");
+                    end_w_buffer =
+                        std::cmp::min(end.saturating_add(buffer_size), ref_end);
+                    continue 'fetch_loop;
+                }
+                debug!("re-check..");
             }
-        }
+            break mask;
+        };
+        Ok((
+            FocusPositions2::SimpleMask {
+                mask,
+                num_motifs: self.num_motifs() as u8,
+            },
+            end as u32,
+        ))
     }
 
-    pub fn get_motif_positions(
+    pub(crate) fn get_motif_positions(
         &mut self,
         contig: &str,
         tid: u32,
@@ -278,7 +289,7 @@ impl MotifLocationsLookup {
         range: std::ops::Range<u64>,
         stranded_position_filter: Option<&StrandedPositionFilter<()>>,
         combine_strands: bool,
-    ) -> anyhow::Result<(MultipleMotifLocations, u32)> {
+    ) -> MkResult<(FocusPositions2, u32)> {
         if combine_strands && !self.motifs.is_empty() {
             self.get_motif_positions_combine_strands(
                 contig,
@@ -291,14 +302,26 @@ impl MotifLocationsLookup {
             let seq =
                 self.reader.get_sequence(contig, range.start, range.end)?;
             let seq = if self.mask { seq } else { seq.to_ascii_uppercase() };
-            let multiple_motif_locations = self.get_motifs_on_seq(
+            let mask = self.get_motifs_on_seq(
                 &seq,
                 range.start,
                 tid,
                 stranded_position_filter,
             );
-            Ok((multiple_motif_locations, range.end as u32))
+            let focus_positions = FocusPositions2::SimpleMask {
+                mask,
+                num_motifs: self.num_motifs() as u8,
+            };
+            Ok((focus_positions, range.end as u32))
         }
+    }
+
+    pub(super) fn num_motifs(&self) -> usize {
+        self.motifs.len()
+    }
+
+    pub(crate) fn motif_infos(&self) -> impl Iterator<Item = &MotifInfo> + '_ {
+        self.motifs.iter().map(|x| &x.motif_info)
     }
 }
 
@@ -318,8 +341,8 @@ mod fasta_mod_tests {
             std::path::Path::new("../tests/resources/CGI_ladder_3.6kb_ref.fa")
                 .to_path_buf();
         let compressed_reader =
-            HtsFastaHandle::from_file(&compressed_fp).unwrap();
-        let reader = HtsFastaHandle::from_file(&fp).unwrap();
+            HtsFastaHandle::from_file(&compressed_fp, false).unwrap();
+        let reader = HtsFastaHandle::from_file(&fp, false).unwrap();
         assert_eq!(&compressed_reader.contigs, &reader.contigs);
         let mut rng = StdRng::seed_from_u64(42);
         for (contig, len) in compressed_reader.contigs.iter() {

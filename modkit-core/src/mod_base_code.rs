@@ -183,18 +183,35 @@ impl From<u32> for ModCodeRepr {
     }
 }
 
+impl From<i32> for ModCodeRepr {
+    #[inline]
+    fn from(value: i32) -> Self {
+        if value < 0 {
+            let pos_value = value.abs() as u32;
+            Self::ChEbi(pos_value)
+        } else {
+            let ch: Result<u8, _> = value.try_into();
+            match ch {
+                Ok(c) => Self::Code(c as char),
+                Err(_) => Self::ChEbi(value as u32),
+            }
+        }
+    }
+}
+
 #[derive(
     Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, ValueEnum,
 )]
+#[repr(usize)]
 pub enum DnaBase {
     #[clap(name = "A")]
-    A,
+    A = 0,
     #[clap(name = "C")]
-    C,
+    C = 1,
     #[clap(name = "G")]
-    G,
+    G = 2,
     #[clap(name = "T")]
-    T,
+    T = 3,
 }
 
 impl DnaBase {
@@ -234,12 +251,59 @@ impl DnaBase {
 impl TryFrom<u8> for DnaBase {
     type Error = MkError;
 
+    #[inline]
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             nt_bytes::A => Ok(Self::A),
             nt_bytes::C => Ok(Self::C),
             nt_bytes::G => Ok(Self::G),
             nt_bytes::T => Ok(Self::T),
+            _ => Err(MkError::InvalidDnaBase),
+        }
+    }
+}
+
+impl TryFrom<i32> for DnaBase {
+    type Error = MkError;
+
+    #[inline]
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        let value: u8 =
+            value.try_into().map_err(|_| MkError::InvalidDnaBase)?;
+        match value {
+            nt_bytes::A => Ok(Self::A),
+            nt_bytes::C => Ok(Self::C),
+            nt_bytes::G => Ok(Self::G),
+            nt_bytes::T => Ok(Self::T),
+            _ => Err(MkError::InvalidDnaBase),
+        }
+    }
+}
+
+impl TryFrom<usize> for DnaBase {
+    type Error = MkError;
+
+    #[inline]
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0usize => Ok(Self::A),
+            1usize => Ok(Self::C),
+            2usize => Ok(Self::G),
+            3usize => Ok(Self::T),
+            _ => Err(MkError::InvalidDnaBase),
+        }
+    }
+}
+
+impl TryFrom<&str> for DnaBase {
+    type Error = MkError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value.to_ascii_uppercase().as_str() {
+            "A" => Ok(DnaBase::A),
+            "C" => Ok(DnaBase::C),
+            "G" => Ok(DnaBase::G),
+            "T" => Ok(DnaBase::T),
             _ => Err(MkError::InvalidDnaBase),
         }
     }
@@ -283,3 +347,44 @@ impl Display for BaseState {
 pub struct ProbHistogram {
     pub prob_counts: HashMap<BaseAndState, BTreeMap<u8, usize>>,
 }
+
+const LN_FIVE_HYDROXY_METHYL_CYTOSINE: &str = "5hmC";
+const LN_FIVE_METHYL_CYTOSINE: &str = "5mC";
+const LN_FOUR_METHYL_CYTOSINE: &str = "4mC";
+const LN_SIX_METHYL_ADENINE: &str = "6mA";
+const LN_ANY_ADENINE: &str = "A";
+const LN_ANY_CYTOSINE: &str = "C";
+const LN_ANY_THYMINE: &str = "T";
+const LN_ANY_GUANINE: &str = "G";
+
+const LN_RNA_SIX_METHYL_ADENINE: &str = "m6A";
+const LN_RNA_FIVE_METHYL_CYTOSINE: &str = "m5C";
+const LN_PSEUDOURIDINE: &str = "pseU";
+const LN_INOSINE: &str = "inosine";
+const LN_TWO_OME_GUANINE: &str = "2OmeG";
+const LN_TWO_OME_CYTOSINE: &str = "2OmeC";
+const LN_TWO_OME_ADENINE: &str = "2OmeA";
+const LN_TWO_OME_URACIL: &str = "2OmeU";
+
+pub static LONG_NAME_TO_CODE: std::sync::LazyLock<
+    HashMap<&'static str, ModCodeRepr>,
+> = std::sync::LazyLock::new(|| {
+    hash_map! {
+        LN_FIVE_HYDROXY_METHYL_CYTOSINE => HYDROXY_METHYL_CYTOSINE,
+        LN_FIVE_METHYL_CYTOSINE => METHYL_CYTOSINE,
+        LN_FOUR_METHYL_CYTOSINE => FOUR_METHYL_CYTOSINE,
+        LN_SIX_METHYL_ADENINE => SIX_METHYL_ADENINE,
+        LN_RNA_SIX_METHYL_ADENINE => SIX_METHYL_ADENINE,
+        LN_RNA_FIVE_METHYL_CYTOSINE => METHYL_CYTOSINE,
+        LN_PSEUDOURIDINE => PSEUDOURIDINE,
+        LN_INOSINE => INOSINE,
+        LN_TWO_OME_GUANINE => TWO_OME_GUANINE,
+        LN_TWO_OME_CYTOSINE => TWO_OME_CYTOSINE,
+        LN_TWO_OME_ADENINE => TWO_OME_ADENINE,
+        LN_TWO_OME_URACIL => TWO_OME_URACIL,
+        LN_ANY_ADENINE => ANY_ADENINE,
+        LN_ANY_CYTOSINE => ANY_CYTOSINE,
+        LN_ANY_THYMINE => ANY_THYMINE,
+        LN_ANY_GUANINE => ANY_GUANINE,
+    }
+});

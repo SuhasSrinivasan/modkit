@@ -11,7 +11,6 @@ use crate::mod_bam::{
     SeqPosBaseModProbs, SkipMode,
 };
 use crate::mod_base_code::{DnaBase, ModCodeRepr};
-use crate::monoid::BorrowingMoniod;
 use crate::motifs::motif_bed::MotifInfo;
 use crate::threshold_mod_caller::MultipleThresholdModCaller;
 use crate::util::{self, Strand};
@@ -291,64 +290,6 @@ impl<'a> ReadCache<'a> {
                             || self.neg_reads.contains_key(&read_id),
                     );
                     self.get_mod_call(record, position, canonical_base)
-                }
-            }
-        }
-    }
-
-    pub(crate) fn add_mod_codes_for_record(
-        &mut self,
-        record: &bam::Record,
-        pos_strand_mod_codes: &mut PrimaryBaseToModCodes,
-        neg_strand_mod_codes: &mut PrimaryBaseToModCodes,
-    ) {
-        // optimize, could use a better implementation here - pass the read_id
-        // from the calling function perhaps
-        let read_id = String::from_utf8(record.qname().to_vec()).unwrap();
-        if self.skip_set.contains(&read_id) {
-            return;
-        } else {
-            match (
-                self.pos_mod_codes.get(&read_id),
-                self.neg_mod_codes.get(&read_id),
-            ) {
-                (Some(pos_codes), Some(neg_codes)) => {
-                    pos_strand_mod_codes.op_mut(pos_codes);
-                    neg_strand_mod_codes.op_mut(neg_codes);
-                }
-                (Some(pos_codes), None) => {
-                    pos_strand_mod_codes.op_mut(pos_codes);
-                }
-                (None, Some(neg_codes)) => {
-                    neg_strand_mod_codes.op_mut(neg_codes);
-                }
-                (None, None) => {
-                    match self.add_record(record) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            debug!("{read_id}: {e}",);
-                            self.skip_set.insert(read_id.clone());
-                        }
-                    }
-                    if !(self.skip_set.contains(&read_id)
-                        || self.pos_reads.contains_key(&read_id)
-                        || self.neg_reads.contains_key(&read_id))
-                    {
-                        error!(
-                            "didn't add failed read id to skip sets, likely a \
-                             bug"
-                        );
-                    }
-                    assert!(
-                        self.skip_set.contains(&read_id)
-                            || self.pos_mod_codes.contains_key(&read_id)
-                            || self.neg_mod_codes.contains_key(&read_id)
-                    );
-                    self.add_mod_codes_for_record(
-                        record,
-                        pos_strand_mod_codes,
-                        neg_strand_mod_codes,
-                    );
                 }
             }
         }

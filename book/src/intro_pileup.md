@@ -1,137 +1,156 @@
 # Constructing bedMethyl tables.
 
-A primary use of `modkit` is to create summary counts of modified and unmodified bases in
-an extended [bedMethyl](https://www.encodeproject.org/data-standards/wgbs/) format.
-bedMethyl files tabulate the counts of base modifications from every sequencing read over
-each aligned reference genomic position. In order to create a bedMethyl table, your modBAM
-must be aligned to a reference genome. The genome sequence is only required if you are using
-the `--cpg` flag or `traditional` preset. Only **primary alignments** are used in generating 
-the table, it is recommended to mark duplicate alignments before running as multiple primary
-alignments can be double counted (but the behavior is logged). See [limitations](./limitations.md)
-for details.
+A primary use of `modkit` is to create summary counts of modified and unmodified bases in an extended [bedMethyl](https://www.encodeproject.org/data-standards/wgbs/) format.
+bedMethyl files tabulate the counts of base modifications from every sequencing read over each aligned reference genomic position.
+In order to create a bedMethyl table, your modBAM must be aligned to a reference genome or transcriptome.
+Although not required, providing a reference and using the `--modified-bases` option will provide the clearest results and can greatly improve performance (details below).
+Only **primary alignments** are used in generating the table, it is recommended to mark duplicate alignments before running as multiple primary alignments can be double counted.
 
-## Basic usage
+## Recommended usage
 
-In its simplest form `modkit pileup` creates a bedMethyl file using the following:
+> [!IMPORTANT]
+> Changes for v0.6.0
 
-```text
-modkit pileup path/to/reads.bam output/path/pileup.bed --log-filepath pileup.log
+For best performance use the `--modified-bases` option with the base modifications you intend to analyze. 
+
+For example:
+```bash
+modkit pileup \
+  path/to/reads.bam \
+  path/to/output.bed.gz \
+  --modified-bases 5mC 5hmC \
+  --reference path/to/reference.fasta \
+  --log path/to/log.txt \ # optional, recommended
+  --bgzf \ # optional
 ```
 
-No reference sequence is required. A single file (described
-[below](#description-of-bedmethyl-output)) with base count summaries will be created. The
-final argument here specifies an optional log file output.
+> [!TIP]
+> Note when using a **transcriptome-aligned** modBAM (for direct RNA), pass the `--preload-references` flag to increase performance.
 
-The program performs best-practices filtering and manipulation of the raw data stored in
-the input file. For further details see [filtering modified-base calls](./filtering.md).
+Passing `--modified-bases` not required, but directs Modkit to use optimized routines which will lead to better efficiency.
+This option _does_ require a FASTA reference, and will only emit bedmethyl records for base modifications to the primary sequence base in the reference.
+For example, a command with the option `--modified-bases 5mC 5hmC 6mA` will _not_ have 6mA records on genomic Cytosine locations where a read has a C>A mismatch nor 5mC/5hmC records at genomic Adenine locations.
+For more details on how this option works see [migrating to v0.6.0](./migrating_060.md).
+
+A subset of the base modifications present in the modBAM can specified
+For example, passing the option `--modified-bases 5mC` when the modBAM contains 5mC and 5hmC calls will only produce 5mC records.
+
+> [!NOTE]
+> If the reference FASTA does not have an index at `path/to/reference.fasta.fai` one will be created.
+
+### Syntax of `--modified-bases`
+You may pass the "long-name" such as "5mC" or a primary base and the "short-name".
+For example: `--modified-bases 5mC 5hmC 6mA` and `--modified-bases C:m C:h A:a` are equivalent.
+ChEBI codes can also be used.
+For example, a to make a pileup for a modBAM with a direct RNA reads you may use: `--modified-bases A:17596 A:69426 A:a C:m C:19228 G:19229`.
+
+> [!TIP]
+> If you don't know which modified bases are present in your modBAM run: `modkit modbam check-tags $bam --head 100`.
+
+### Running without a reference
+A reference and `--modified-bases` is not required, for example:
+
+```bash
+modkit pileup path/to/reads.bam output/path/pileup.bed --log-filepath pileup.log
+```
+This invocation may be slower than using `--modified-bases` with a reference.
+
+In both cases, a single file (described [below](#description-of-bedmethyl-output)) with base count summaries will be created.
+
+The program performs best-practices filtering and manipulation of the raw data stored in the input file.
+For further details see [filtering modified-base calls](./filtering.md).
+
+
+## Common options that change how base modifications are tabulated
 
 ### Narrowing output to CpG dinucleotides
 
-For user convenience, the counting process can be modulated using several additional
-transforms and filters. The most basic of these is to report only counts from reference
-CpG dinucleotides. This option requires a reference sequence in order to locate the CpGs
-in the reference:
-
-```bash
-modkit pileup path/to/reads.bam output/path/pileup.bed --cpg --ref path/to/reference.fasta
-```
-
-**Note** that when passing a reference with `--ref` a FASTA index `.fai` file is required to be at `path/to/reference.fasta.fai`.
-
-To restrict output to only certain CpGs, pass the `--include-bed` option with the CpGs to be used, 
-see [this page](./intro_include_bed.md) for more details.
+For user convenience, the counting process can be modulated using several additional transforms and filters.
+The most basic of these is to report only counts from reference CpG dinucleotides, this behavior is enabled by passing the `--cpg` flag.
+Any motif can be used see [below](#narrowing-output-to-specific-motifs).
 
 ```bash
 modkit pileup path/to/reads.bam output/path/pileup.bed \
+  --cpg \
+  --modified-bases 5mC 5hmC \
+  --ref path/to/reference.fasta
+```
+
+### Specifying `--combine-mods` and/or `--combine-strands` to simplify output
+
+With palindromic motifs, base modification counts can be summed across strands with `--combine-strands`:
+
+```bash
+modkit pileup \
+  path/to/reads.bam \
+  output/path/pileup.bed \
+  --modified-bases 5mC 5hmC \
+  --cpg \
+  --combine-strands \
+  --ref path/to/reference.fasta \
+```
+Note that the strand field of the output will be marked as '.' indicating that the strand information has been lost.
+
+Finally, `--combine-mods` can be used to produce a bedMethyl with binary "modified/not-modified" counts and percentages:
+
+```bash
+modkit pileup \
+  path/to/reads.bam \
+  output/path/pileup.bed \
+  --modified-bases 5mC 5hmC \
+  --combine-mods \
+  --ref path/to/reference.fasta \
+  [--cpg] \  # optional
+  [--combine-strands] \ #optional
+```
+
+As can be seen in the above example, these flags can be combined to generate the following output types (flags in `[braces]` indicate that it is optional):
+1. Nothing: All modifications at each, stranded, position.
+1. `--cpg`: Narrow output to only CpGs.
+1. `--combine-mods [--cpg]`: sum counts of all modification types together.
+1. `--combine-strands --cpg [--combine-mods]`: Sum (+)-strand and (-)-strand counts onto the (+)-strand position.
+
+To restrict output to only certain CpGs, pass the `--include-bed` option with the CpGs or regions to be used, see [this page](./intro_include_bed.md) for more details.
+
+```bash
+modkit pileup path/to/reads.bam output/path/pileup.bed \
+  --modified-bases 5mC 5hmC \
   --cpg \
   --ref path/to/reference.fasta \
   --include-bed path/to/my_cpgs.bed
 ```
 
-The program also contains preset which combine several options for ease of use. The
-`traditional` preset,
-
-```bash
-modkit pileup path/to/reads.bam output/path/pileup.bed \
-  --ref path/to/reference.fasta \
-  --preset traditional
-```
-
-performs three transforms:
-* restricts output to locations where there is a CG dinucleotide in the reference,
-* reports only a C and 5mC counts, using procedures to take into account counts of other
-  forms of cytosine modification (notably 5hmC), and
-* aggregates data across strands. The strand field of the output will be marked as '.'
-  indicating that the strand information has been lost.
-
-Using this option is equivalent to running with the options:
-
-```bash
-modkit pileup path/to/reads.bam output/path/pileup.bed --cpg --ref <reference.fasta> --ignore h --combine-strands
-```
-
 ### Narrowing output to specific motifs
 
-By default, `modkit` will output a BED row for all genomic positions where
-there is at least one base modification in the input modBAM. We define a motif
-as a short DNA sequence potentially containing [degenerate
-codes](https://en.wikipedia.org/wiki/Nucleic_acid_notation). To ease downstream
-analysis, the `--motif <Motif> <offset, 0-based>` option can be used to
-pre-filter and annotate the bedMethyl rows. The `--cpg` flag is a alias for
-`--motif CG 0` where the sequence motif is `CG` and the offset is `0`, meaning
-pileup base modification counts for the first `C` in the motif on the top
-strand the second `C` (complement to `G`) on the bottom strand. Another example
-may be `--motif GATC 1`, signaling to pileup counts for the `A` in the second
-position on the top strand and the `A` in the third position on the bottom
-strand.
+By default, `modkit` will output a BED row for all genomic positions where there is at least one base modification for the reference base in the input modBAM.
+We define a motif as a short DNA sequence potentially containing [degenerate codes](https://en.wikipedia.org/wiki/Nucleic_acid_notation).
+To ease downstream analysis, the `--motif <Motif> <offset, 0-based>` option can be used to pre-filter and annotate the bedMethyl rows.
+The `--cpg` flag is a alias for `--motif CG 0` where the sequence motif is `CG` and the offset is `0`, meaning pileup base modification counts for the first `C` in the motif on the top strand the second `C` (complement to `G`) on the bottom strand.
+Another example may be `--motif GATC 1`, signaling to pileup counts for the `A` in the second position on the top strand and the `A` in the third position on the bottom strand.
 
-When multiple motifs are specified the `name` column ([column
-4](#bedmethyl-column-descriptions)), will indicate which motif the counts are
-tabulated for. For example, if `--motif CGCG 2 --motif CG 0` are passed you may
-see lines such as:
+When multiple motifs are specified the `name` column ([column 4](#bedmethyl-column-descriptions)), will indicate which motif the counts are tabulated for.
+For example, if `--motif CGCG 2 --motif CG 0` are passed you may see lines such as:
 
 ```text
 oligo_741_adapters  39 40 m,CG,0   4	-	39	40	255,0,0	4 100.00 4 0 0 0 0 0 0
 oligo_741_adapters  39 40 m,CGCG,2 4	-	39	40	255,0,0	4 100.00 4 0 0 0 0 0 0
-
 ```
 
-The `--combine-strands` flag can be combined with `--motif` however all motifs
-must be reverse-complement palindromic (`CG` _is_ a palindrome but `CHH` is
-not).
+The `--combine-strands` flag can be combined with `--motif` however all motifs must be reverse-complement palindromic (`CG` _is_ a palindrome but `CHH` is not).
+Only one motif at a time is supported with `--combine-strands` is used (see [limitations](./limitations.md) for details).
 
+## Partitioning reads based on phasing information with `--phased`
 
-### Partitioning reads based on SAM tag values
-
-If have a modBAM with reads from different conditions are other SAM tag annotations (for example `RG` or `HP`) you 
-can pass the `--partition-tag` option and `modkit` will output a separate bedMethyl with counts for only the reads 
-with that tag value. For example, if you have haplotype-annotated reads with the `HP` tag, you could use a command
-like the following:
+If you have a modBAM with phased reads containing a `HP` tag. These can be partitioned into separate bedMethyl files on output by passing the `--phased` flag.
 
 ```bash
-modkit pileup path/to/reads.bam output/directory/ --cpg --ref <reference.fasta> --partition-tag HP --prefix haplotyped
+modkit pileup path/to/reads.bam output/directory/ \
+  --cpg --modified-bases 5mC 5hmC --ref <reference.fasta> --phased
 ```
-The output will be multiple files in placed in `output/directory/haplotyped_<1|2|etc>.bed`, multiple `--partition-tag`
-options can be passed and the output files will correspond to the observed combinations of tags found in the modBAM. 
-For example if `--partition-tag RG` and `--partition-tag HP` are passed:
-
-```bash
-outdir/
-  <prefix>_<RG_value_1>_<HP_value_1>.bed
-  <prefix>_<RG_value_2>_<HP_value_1>.bed
-  <prefix>_<RG_value_1>_<HP_value_2>.bed
-  <prefix>_<RG_value_2>_<HP_value_2>.bed
-  # ... etc
-```
-
-Note that only tag values that can be easily turned into strings will be considered valid (e.g. numbers, characters,
-strings, etc.), array values will not be used, and will result in `missing` being used. Reads missing all of the 
-SAM tags will be put in `ungrouped.bed`.
-
+The output will be 3 files: `hp1.bedmethyl`, `hp2.bedmethyl`, and `combined.bedmethyl`.
+hp1.bedmethyl and hp2.bedmethyl contain counts for records with `HP=1` and `HP=2` tags, respectively. combined.bedmethyl contains counts for all modBAM records.
 
 For more information on the individual options see the [Advanced Usage](./advanced_usage.md) help document.
-
-
 
 ## Description of bedMethyl output.
 
@@ -180,7 +199,10 @@ CG->CH substitution such that no modification call was produced by the basecalle
 | 17     | N<sub>diff</sub>             | see definitions above                                                           | int   |
 | 18     | N<sub>nocall</sub>           | see definitions above                                                           | int   |
 
-## Performance considerations
+## Performance considerations 
+> [!IMPORTANT]
+> Changes for v0.6.0
 
-The `--interval-size`, `--threads`, `--chunk-size`, and `--max-depth` parameters can be used to tweak the parallelism and memory consumption of `modkit pileup`.
-The defaults should be suitable for most use cases, for more details see [performance considerations](./perf_considerations.md) sections.
+As of version 0.6.0 the efficiency of `pileup` has been greatly improved.
+As a result, fewer threads are often required to get high throughput.
+For example, increasing threads beyond 8 a 40X human genome BAM will often not yield much benefit.

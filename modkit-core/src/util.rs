@@ -59,6 +59,16 @@ pub fn get_ticker() -> ProgressBar {
     ticker.set_style(ProgressStyle::with_template("> {pos} {msg}").unwrap());
     ticker
 }
+
+pub fn get_ticker_with_rate() -> ProgressBar {
+    let ticker = ProgressBar::new_spinner();
+    ticker.set_style(
+        ProgressStyle::with_template("> {pos} {msg} [{decimal_bytes_per_sec}]")
+            .unwrap(),
+    );
+    ticker
+}
+
 pub(crate) fn get_spinner() -> ProgressBar {
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
@@ -87,6 +97,15 @@ fn get_master_progress_bar_style() -> ProgressStyle {
     .progress_chars("##-")
 }
 
+fn get_master_progress_bar_style_with_eta_rate() -> ProgressStyle {
+    ProgressStyle::with_template(
+        "[{elapsed_precise}] {bar:40.green/yellow} {pos:>7}/{len:7} {msg} \
+         {per_sec} {eta}",
+    )
+    .unwrap()
+    .progress_chars("##-")
+}
+
 fn get_subroutine_progress_bar_style() -> ProgressStyle {
     ProgressStyle::with_template(
         "[{elapsed_precise}] {bar:40.blue/cyan} {pos:>7}/{len:7} {msg}",
@@ -99,6 +118,15 @@ fn get_gauge_style() -> ProgressStyle {
     ProgressStyle::with_template("{bar:40.red/blue} {pos:>7}/{len:7} {msg}")
         .unwrap()
         .progress_chars("||-")
+}
+
+pub fn get_master_progress_bar_fancy<
+    T: num_traits::Num + num_traits::cast::AsPrimitive<u64>,
+>(
+    n: T,
+) -> ProgressBar {
+    ProgressBar::new(n.as_())
+        .with_style(get_master_progress_bar_style_with_eta_rate())
 }
 
 pub fn get_master_progress_bar<
@@ -360,6 +388,18 @@ impl StrandRule {
     }
 }
 
+impl TryFrom<i32> for Strand {
+    type Error = MkError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0i32 => Ok(Strand::Positive),
+            1i32 => Ok(Strand::Negative),
+            _ => Err(MkError::InvalidStrand),
+        }
+    }
+}
+
 impl From<Strand> for StrandRule {
     fn from(value: Strand) -> Self {
         match value {
@@ -543,7 +583,7 @@ impl Region {
     pub fn get_fetch_definition(
         &self,
         header: &HeaderView,
-    ) -> AnyhowResult<bam::FetchDefinition> {
+    ) -> AnyhowResult<bam::FetchDefinition<'_>> {
         let tid = (0..header.target_count())
             .find_map(|tid| {
                 String::from_utf8(header.tid2name(tid).to_vec()).ok().and_then(
@@ -681,7 +721,7 @@ pub fn add_modkit_pg_records(header: &mut bam::Header) {
 
 #[derive(new, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Copy, Clone)]
 pub struct SamTag {
-    inner: [u8; 2],
+    pub inner: [u8; 2],
 }
 
 #[cfg(test)]
@@ -691,7 +731,7 @@ impl SamTag {
     }
 }
 
-pub(crate) fn get_stringable_aux(
+pub fn get_stringable_aux(
     record: &bam::Record,
     sam_tag: &SamTag,
 ) -> Option<String> {
@@ -711,7 +751,22 @@ pub(crate) fn get_stringable_aux(
     })
 }
 
-pub(crate) fn parse_partition_tags(
+pub(crate) fn get_haplotype_tag(
+    record: &bam::Record,
+    tag: &SamTag,
+) -> Option<u8> {
+    record.aux(&tag.inner).ok().and_then(|aux| match aux {
+        Aux::I8(i) if i >= 0 => Some(i as u8),
+        Aux::I16(i) if i >= 0 => Some(i as u8),
+        Aux::I32(i) if i >= 0 => Some(i as u8),
+        Aux::U8(u) => Some(u as u8),
+        Aux::U16(u) => Some(u as u8),
+        Aux::U32(u) => Some(u as u8),
+        _ => None,
+    })
+}
+
+pub fn parse_partition_tags(
     raw_tags: &[String],
 ) -> anyhow::Result<Vec<SamTag>> {
     let mut tags_seen = HashSet::with_capacity(raw_tags.len());
@@ -754,6 +809,13 @@ pub(crate) fn reader_is_bam(reader: &bam::IndexedReader) -> bool {
     unsafe {
         (*reader.htsfile()).format.format
             == rust_htslib::htslib::htsExactFormat_bam
+    }
+}
+#[inline]
+pub(crate) fn reader_is_cram(reader: &bam::IndexedReader) -> bool {
+    unsafe {
+        (*reader.htsfile()).format.format
+            == rust_htslib::htslib::htsExactFormat_cram
     }
 }
 
@@ -1046,6 +1108,12 @@ impl<T: Hash + Eq> MutOpMax for HashMap<T, f32> {
                 .or_insert(p);
         }
     }
+}
+
+#[inline]
+pub(crate) fn qual_to_prob(qual: i32) -> f32 {
+    let q = qual as f32;
+    (q + 0.5f32) / 256f32
 }
 
 #[cfg(test)]

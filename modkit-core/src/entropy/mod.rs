@@ -592,7 +592,7 @@ impl GenomeWindows {
         start..end
     }
 
-    fn get_fetch_definition(&self) -> FetchDefinition {
+    fn get_fetch_definition(&self) -> FetchDefinition<'_> {
         let range = self.get_range();
         let start = range.start as i64;
         let end = range.end as i64;

@@ -4,7 +4,7 @@ use derive_new::new;
 use rustc_hash::FxHashMap;
 use std::collections::HashMap;
 
-#[derive(new)]
+#[derive(new, Clone)]
 pub struct MultipleThresholdModCaller {
     per_base_thresholds: HashMap<DnaBase, f32>,
     // todo maybe allow this per primary base?
@@ -147,6 +147,14 @@ impl MultipleThresholdModCaller {
 
     pub fn iter_thresholds(&self) -> impl Iterator<Item = (&DnaBase, &f32)> {
         self.per_base_thresholds.iter()
+    }
+
+    pub fn base_thresholds(&self) -> [f32; 4] {
+        let mut thresholds = [0f32; 4];
+        for (base, threshold) in self.iter_thresholds() {
+            thresholds[*base as usize] = *threshold;
+        }
+        thresholds
     }
 
     pub fn iter_mod_thresholds(

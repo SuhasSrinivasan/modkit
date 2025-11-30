@@ -88,28 +88,69 @@ Arguments:
           Input BAM, should be sorted and have associated index available
 
   <OUT_BED>
-          Output file (or directory with --bedgraph option) to write results
-          into. Specify "-" or "stdout" to direct output to stdout
+          Output file to write results into. Specify "-" or "stdout" to direct
+          output to stdout
 
 Options:
-      --preset <PRESET>
-          Optional preset options for specific applications. traditional:
-          Prepares bedMethyl analogous to that generated from other technologies
-          for the analysis of 5mC modified bases. Shorthand for --cpg
-          --combine-strands --ignore h
-          
-          [possible values: traditional]
+      --duplex
+          Specify that modBAM contains duplex modification calls and these
+          should be used
 
-      --invert-edge-filter
-          Invert the edge filter, instead of filtering out base modification
-          calls at the ends of reads, only _keep_ base modification calls at the
-          ends of reads. E.g. if usually, "4,8" would remove (i.e. filter out)
-          base modification calls in the first 4 and last 8 bases of the read,
-          using this flag will keep only base modification calls in the first 4
-          and last 8 bases
+      --modified-bases <MODIFIED_BASES>...
+          
 
   -h, --help
           Print help (see a summary with '-h')
+
+Output Options:
+      --bgzf
+          Output bgzf-compressed bedmethyl files suitable for Tabix-indexing
+
+      --mixed-delim
+          Output bedMethyl where the delimiter of columns past column 10 are
+          space-delimited instead of tab-delimited. This option can be useful
+          for some browsers and parsers that don't expect the extra columns of
+          the bedMethyl format
+
+      --header
+          Output a header with the bedMethyl
+
+      --prefix <PREFIX>
+          Prefix to prepend on phased output file names. Without this option the
+          files will be <mod_code>_<strand>.bedmethyl
+
+      --phased
+          Produce separate bedMethyl tables for haplotype-labeled modBAM
+          records. Currently only supports diploid genomes. Produces
+          hp1.bedmethyl, hp2.bedmethyl, and combined.bedmethyl files (optionally
+          compressed). hp1.bedmethyl and hp2.bedmethyl contain counts for
+          records with HP=1 and HP=2 tags, respectively. combined.bedmethyl
+          contains counts for all modBAM records
+
+Compute Options:
+      --bgzf-threads <BGZF_THREADS>
+          Specify the number of threads to dedicate to BGZF compression
+          
+          [default: 4]
+
+  -t, --threads <THREADS>
+          Number of threads to use while processing chunks concurrently
+          
+          [default: 4]
+
+  -s, --sampling-threads <SAMPLING_THREADS>
+          Use this many threads when performing threshold estimation, setting
+          this to a higher value can speed up execution
+
+  -i, --interval-size <INTERVAL_SIZE>
+          Interval chunk size in base pairs to process concurrently. Smaller
+          interval chunk sizes will use less memory but incur more overhead
+          
+          [default: 1000000]
+
+      --queue-size <QUEUE_SIZE>
+          Size of queue for writing records, default will be the number of
+          threads
 
 Logging Options:
       --log-filepath <LOG_FILEPATH>
@@ -125,14 +166,6 @@ Selection Options:
           Format should be <chrom_name>:<start>-<end> or <chrom_name>. Commas
           are allowed
 
-      --max-depth <MAX_DEPTH>
-          Maximum number of records to use when calculating pileup. This
-          argument is passed to the pileup engine. If you have high depth data,
-          consider increasing this value substantially. Must be less than
-          2147483647 or an error will be raised
-          
-          [default: 8000]
-
       --include-bed <INCLUDE_BED>
           BED file that will restrict threshold estimation and pileup results to
           positions overlapping intervals in the file. (alias:
@@ -147,31 +180,6 @@ Selection Options:
           provided to asymmetrically filter out base modification calls from the
           start and end of the reads. For example, 4,8 will filter out base
           modification calls in the first 4 and last 8 bases of the read
-
-Compute Options:
-  -t, --threads <THREADS>
-          Number of threads to use while processing chunks concurrently
-          
-          [default: 4]
-
-  -i, --interval-size <INTERVAL_SIZE>
-          Interval chunk size in base pairs to process concurrently. Smaller
-          interval chunk sizes will use less memory but incur more overhead
-          
-          [default: 100000]
-
-      --queue-size <QUEUE_SIZE>
-          Size of queue for writing records
-          
-          [default: 1000]
-
-      --chunk-size <CHUNK_SIZE>
-          Break contigs into chunks containing this many intervals (see
-          `interval_size`). This option can be used to help prevent excessive
-          memory usage, usually with no performance penalty. By default, modkit
-          will set this value to 1.5x the number of threads specified, so if 4
-          threads are specified the chunk_size will be 6. A warning will be
-          shown if this option is less than the number of threads specified
 
 Sampling Options:
   -n, --num-reads <NUM_READS>
@@ -242,21 +250,6 @@ Filtering Options:
           [default: 1000000]
 
 Modified Base Options:
-      --ignore <IGNORE>
-          Ignore a modified base class  _in_situ_ by redistributing base
-          modification probability equally across other options. For example, if
-          collapsing 'h', with 'm' and canonical options, half of the
-          probability of 'h' will be added to both 'm' and 'C'. A full
-          description of the methods can be found in collapse.md
-
-      --force-allow-implicit
-          Force allow implicit-canonical mode. By default modkit does not allow
-          pileup with the implicit mode (e.g. C+m, no '.' or '?'). The
-          `update-tags` subcommand is provided to update tags to the new mode.
-          This option allows the interpretation of implicit mode tags: residues
-          without modified base probability will be interpreted as being the
-          non-modified base
-
       --motif <MOTIF> <MOTIF>
           Output pileup counts for only sequence motifs provided. The first
           argument should be the sequence motif and the second argument is the
@@ -274,12 +267,16 @@ Modified Base Options:
           or an error will be raised.
 
       --cpg
-          Only output counts at CpG motifs. Requires a reference sequence to be
-          provided as well as FAI index
+          Only output counts at CpG motifs
 
-  -r, --ref <REFERENCE_FASTA>
+  -r, --reference <REFERENCE_FASTA>
           Reference sequence in FASTA format. Required for motif (e.g. CpG)
-          filtering, requires FAI fasta index to be pre-generated
+          filtering, requires FAI fasta index to be pre-generated. (alias:
+          'ref')
+
+      --preload-references
+          Preload the reference sequences, useful when working with many, short
+          reference sequences such as a transcriptome
 
   -k, --mask
           Respect soft masking in the reference FASTA
@@ -292,42 +289,6 @@ Modified Base Options:
           When performing motif analysis (such as CpG), sum the counts from the
           positive and negative strands into the counts for the positive strand
           position
-
-Output Options:
-      --only-tabs
-          **Deprecated** The default output has all tab-delimiters. For
-          bedMethyl output, separate columns with only tabs. The default is to
-          use tabs for the first 10 fields and spaces thereafter. The default
-          behavior is more likely to be compatible with genome viewers. Enabling
-          this option may make it easier to parse the output with tabular data
-          handlers that expect a single kind of separator
-
-      --mixed-delim
-          Output bedMethyl where the delimiter of columns past column 10 are
-          space-delimited instead of tab-delimited. This option can be useful
-          for some browsers and parsers that don't expect the extra columns of
-          the bedMethyl format
-
-      --bedgraph
-          Output bedGraph format, see
-          https://genome.ucsc.edu/goldenPath/help/bedgraph.html. For this
-          setting, specify a directory for output files to be make in. Two files
-          for each modification will be produced, one for the positive strand
-          and one for the negative strand. So for 5mC (m) and 5hmC (h) there
-          will be 4 files produced
-
-      --header
-          Output a header with the bedMethyl
-
-      --prefix <PREFIX>
-          Prefix to prepend on bedgraph output file names. Without this option
-          the files will be <mod_code>_<strand>.bedgraph
-
-      --partition-tag <PARTITION_TAG>
-          Partition output into multiple bedMethyl files based on tag-value
-          pairs. The output will be multiple bedMethyl files with the format
-          `<prefix>_<tag_value_1>_<tag_value_2>_<tag_value_n>.bed` prefix is
-          optional and set with the `--prefix` flag
 ```
 
 ## adjust-mods

@@ -12,7 +12,7 @@ use modkit_logging::init_logging;
 
 use crate::command_utils::{get_serial_reader, using_stream};
 use crate::interval_chunks::{
-    ReferenceIntervalsFeeder, TotalLength, WithPrevEnd,
+    ReferenceIntervalBatchesFeeder, TotalLength, WithPrevEnd,
 };
 use crate::modbam_util::check_tags::ModTagViews;
 use crate::monoid::Moniod;
@@ -229,7 +229,7 @@ impl EntryCheckTags {
 
                 let reference_records =
                     get_targets(reader.header(), region.as_ref());
-                let feeder = ReferenceIntervalsFeeder::new(
+                let feeder = ReferenceIntervalBatchesFeeder::new(
                     reference_records,
                     (self.threads as f32 * 1.5f32).floor() as usize,
                     self.interval_size,
@@ -259,7 +259,7 @@ impl EntryCheckTags {
     fn run_check_tags_indexed(
         &self,
         bam_fp: PathBuf,
-        feeder: ReferenceIntervalsFeeder,
+        feeder: ReferenceIntervalBatchesFeeder,
         schedule: Option<SamplingSchedule>,
     ) -> anyhow::Result<ModTagViews> {
         let mpb = MultiProgress::new();
