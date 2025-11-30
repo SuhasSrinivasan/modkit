@@ -64,7 +64,7 @@ impl AlphabetInfo {
         Regex::new(&pattern).unwrap()
     }
 
-    fn get_column(&self, idx: usize) -> Chars {
+    fn get_column(&'_ self, idx: usize) -> Chars<'_> {
         self.columns.get(&idx).unwrap().chars()
     }
 }

@@ -201,7 +201,7 @@ impl<I: Iterator<Item = rust_htslib::errors::Result<bam::record::Record>>>
 // todo deprecate this function or move it into the tracking iterator above
 #[cfg(test)]
 pub(crate) fn filter_records_iter<T: bam::Read>(
-    records: bam::Records<T>,
+    records: bam::Records<'_, T>,
 ) -> impl Iterator<Item = (bam::Record, ModBaseInfo)> + '_ {
     use crate::util::get_query_name_string;
     use log::error;
@@ -829,7 +829,7 @@ fn quals_to_probs(quals: &mut [f32]) {
 }
 
 #[derive(Hash, Eq, PartialEq, Copy, Clone, Debug)]
-enum FundamentalBase {
+pub(crate) enum FundamentalBase {
     A,
     C,
     G,
@@ -879,15 +879,28 @@ impl FundamentalBase {
             FundamentalBase::N => true,
         }
     }
+
+    pub(crate) fn expand_bases(&self) -> &'static [DnaBase] {
+        match self {
+            FundamentalBase::A => &[DnaBase::A],
+            FundamentalBase::C => &[DnaBase::C],
+            FundamentalBase::G => &[DnaBase::G],
+            FundamentalBase::T => &[DnaBase::T],
+            FundamentalBase::U => &[DnaBase::T],
+            FundamentalBase::N => {
+                &[DnaBase::A, DnaBase::C, DnaBase::G, DnaBase::T]
+            }
+        }
+    }
 }
 
 /// Container for the information in the MM and ML tags
 #[derive(Debug, Eq, PartialEq)]
 pub struct MmTagInfo {
-    fundamental_base: FundamentalBase,
+    pub(crate) fundamental_base: FundamentalBase,
     mode: SkipMode,
     strand: Strand,
-    mod_base_codes: Vec<ModCodeRepr>,
+    pub(crate) mod_base_codes: Vec<ModCodeRepr>,
     delta_list: Vec<u32>,
 }
 
@@ -902,6 +915,11 @@ fn parse_int_list<'a>(input: &'a str) -> IResult<&'a str, Vec<u32>> {
 }
 
 impl MmTagInfo {
+    pub(crate) fn from_record(record: &bam::Record) -> MkResult<Vec<Self>> {
+        let raw_mod_tags = parse_raw_mod_tags(record)?;
+        Self::parse_mm_tag(&raw_mod_tags.raw_mm)
+    }
+
     pub(crate) fn has_positions(&self) -> bool {
         if self.mode.is_implicit() {
             true
@@ -1020,7 +1038,7 @@ impl MmTagInfo {
         self.delta_list.len() * self.mod_base_codes.len()
     }
 
-    fn is_implicit(&self) -> bool {
+    pub(crate) fn is_implicit(&self) -> bool {
         self.mode.is_implicit()
     }
 
@@ -1647,8 +1665,8 @@ pub fn base_mod_probs_from_record(
 
 #[derive(new, Debug)]
 pub struct EdgeFilter {
-    edge_filter_start: usize,
-    edge_filter_end: usize,
+    pub edge_filter_start: usize,
+    pub edge_filter_end: usize,
     inverted: bool,
 }
 

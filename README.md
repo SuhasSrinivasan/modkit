@@ -2,8 +2,8 @@
 
 # Modkit
 
-A bioinformatics tool for working with modified bases from Oxford Nanopore. Specifically for converting modBAM
-to bedMethyl files using best practices, but also manipulating modBAM files and generating summary statistics.
+A bioinformatics tool for working with modified bases from Oxford Nanopore.
+Specifically for quickly converting modBAM to bedMethyl files using best practices, but also manipulating modBAM files and generating summary statistics.
 Detailed documentation and quick-start can be found in the [online documentation](https://nanoporetech.github.io/modkit/).
 
 ## Installation
@@ -30,41 +30,33 @@ Modkit comprises a suite of tools for manipulating modified-base data stored in 
 
 A primary use of `modkit` is to create summary counts of modified and unmodified bases in an extended [bedMethyl](https://www.encodeproject.org/data-standards/wgbs/) format. bedMethyl files tabulate the counts of base modifications from every sequencing read over each reference genomic position.
 
-In its simplest form `modkit` creates a bedMethyl file using the following:
+For best performance use the `--modified-bases` option with the base modifications you intend to analyze. 
 
+For example:
 ```bash
-modkit pileup path/to/reads.bam output/path/pileup.bed --log-filepath pileup.log
+modkit pileup \
+  path/to/reads.bam \
+  path/to/output.bed.gz \
+  --modified-bases 5mC 5hmC \
+  --reference path/to/reference.fasta \
+  --log path/to/log.txt \ # optional, recommended
+  --bgzf \ # optional
 ```
 
-No reference sequence is required. A single file (described [below](#description-of-bedmethyl-output)) with base count summaries will be created. The final argument here specifies an optional log file output.
+A single file (described [below](#description-of-bedmethyl-output)) with base count summaries will be created. The final argument here specifies an optional log file output.
 
 The program performs best-practices filtering and manipulation of the raw data stored in the input file. For further details see [filtering modified-base calls](./book/src/filtering.md).
 
 For user convenience the counting process can be modulated using several additional transforms and filters. The most basic of these is to report only counts from reference CpG dinucleotides. This option requires a reference sequence in order to locate the CpGs in the reference:
 
 ```bash
-modkit pileup path/to/reads.bam output/path/pileup.bed --cpg --ref path/to/reference.fasta
-```
-
-The program also contains a range of presets which combine several options for ease of use. The `traditional` preset,
-
-```bash
 modkit pileup path/to/reads.bam output/path/pileup.bed \
-  --ref path/to/reference.fasta \
-  --preset traditional
+  --cpg \
+  --modified-bases 5mC 5hmC \
+  --ref path/to/reference.fasta
 ```
 
-performs three transforms:
-* restricts output to locations where there is a CG dinucleotide in
-the reference,
-* reports only a C and 5mC counts, using procedures to take into account counts of other forms of cytosine modification (notably 5hmC), and
-* aggregates data across strands. The strand field od the output will be marked as '.' indicating that the strand information has been lost.
-
-Using this option is equivalent to running with the options:
-
-```bash
-modkit pileup --cpg --ref <reference.fasta> --ignore h --combine-strands
-```
+For more details on `pileup` and other commands, please see the [online documentation](https://nanoporetech.github.io/modkit/).
 
 For more information on the individual options see the [Advanced Usage](./book/src/advanced_usage.md) help document.
 
@@ -148,21 +140,31 @@ For complete usage instructions please see the command-line help of the program 
 To combine multiple base modification calls into one, for example to combine basecalls for both 5hmC and 5mC into a count for "all cytosine modifications" (with code `C`) the `--combine-mods` option can be used:
 
 ```bash
-modkit pileup path/to/reads.bam output/path/pileup.bed --combine-mods
+modkit pileup \
+  path/to/reads.bam \
+  output/path/pileup.bed \
+  --modified-bases 5mC 5hmC \
+  --combine-mods \
+  --ref path/to/reference.fasta \
+  [--cpg] \  # optional
+  [--combine-strands] \ #optional
 ```
 
-In standard usage the `--preset traditional` option can be used as outlined in the [Usage](#usage) section. By more directly specifying individual options we can perform something similar without loss of information for 5hmC data stored in the input file: 
+If you have a modBAM with phased reads containing a `HP` tag. These can be partitioned into separate bedMethyl files on output by passing the `--phased` flag.
 
 ```bash
-modkit pileup path/to/reads.bam output/path/pileup.bed --cpg --ref path/to/reference.fasta \
-    --combine-strands  
+modkit pileup \
+  path/to/reads.bam \
+  output/directory/ \
+  --cpg \
+  --modified-bases 5mC 5hmC \
+  --phased \
+  --ref <reference.fasta>
 ```
 
-To produce a bedGraph file for each modification in the BAM file the `--bedgraph` option can be given. Counts for the positive and negative strands will be put in separate files.
+The output will be 3 files: `hp1.bedmethyl`, `hp2.bedmethyl`, and `combined.bedmethyl`.
+hp1.bedmethyl and hp2.bedmethyl contain counts for records with `HP=1` and `HP=2` tags, respectively. combined.bedmethyl contains counts for all modBAM records.
 
-```bash
-modkit pileup path/to/reads.bam output/directory/path --bedgraph <--prefix string>
-```
 
 The option `--prefix [str]` parameter allows specification of a prefix to the output file names.
 

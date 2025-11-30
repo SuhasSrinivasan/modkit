@@ -1,16 +1,17 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 use anyhow::{anyhow, bail};
+use bitvec::order::Lsb0;
+use bitvec::vec::BitVec;
 use derive_new::new;
 use itertools::Itertools;
 use log::debug;
 use rustc_hash::FxHashMap;
 
+use crate::errs::MkResult;
 use crate::fasta::MotifLocationsLookup;
-use crate::motifs::motif_bed::{
-    MotifInfo, MotifLocations, MultipleMotifLocations,
-};
-use crate::position_filter::{GenomeIntervals, Iv, StrandedPositionFilter};
+use crate::motifs::motif_bed::MotifInfo;
+use crate::position_filter::{GenomeIntervals, StrandedPositionFilter};
 use crate::util::{ReferenceRecord, StrandRule};
 
 pub fn slice_dna_sequence(str_seq: &str, start: usize, end: usize) -> String {
@@ -26,6 +27,11 @@ pub fn slice_dna_sequence(str_seq: &str, start: usize, end: usize) -> String {
             },
         )
         .collect::<String>()
+}
+
+pub(crate) enum FocusPositions2 {
+    SimpleMask { mask: BitVec<usize, Lsb0>, num_motifs: u8 },
+    AllPositions,
 }
 
 /// A "kitchen-sink" enum for different situations (mostly in pileup).
@@ -59,295 +65,6 @@ pub enum FocusPositions {
 }
 
 impl FocusPositions {
-    fn new_motif(
-        multiple_motif_locations: &MultipleMotifLocations,
-        chrom_tid: u32,
-        start: u32,
-        end: u32,
-    ) -> Self {
-        let mut positions = FxHashMap::<u32, StrandRule>::default();
-        let mut positive_motif_ids = FxHashMap::<u32, Vec<usize>>::default();
-        let mut negative_motif_ids = FxHashMap::<u32, Vec<usize>>::default();
-
-        let all_single_base = multiple_motif_locations
-            .motif_locations
-            .iter()
-            .all(|ml| ml.motif_length() == 1);
-        if multiple_motif_locations.motif_locations.len() == 1
-            && all_single_base
-        {
-            // simple case, we just have 1 single base to worry about;
-            let motif = &multiple_motif_locations.motif_locations[0];
-            let positions_this_contig =
-                motif.get_locations_unchecked(chrom_tid);
-            for (position, strand_rule) in
-                positions_this_contig.range(start..end)
-            {
-                positions.insert(*position, *strand_rule);
-                match strand_rule {
-                    StrandRule::Positive => {
-                        positive_motif_ids.insert(*position, vec![0]);
-                    }
-                    StrandRule::Negative => {
-                        negative_motif_ids.insert(*position, vec![0]);
-                    }
-                    StrandRule::Both => {
-                        positive_motif_ids.insert(*position, vec![0]);
-                        negative_motif_ids.insert(*position, vec![0]);
-                    }
-                }
-            }
-        } else if multiple_motif_locations.motif_locations.len() == 1 {
-            // we need to potentially combine the positions together, e.g.
-            // CGCG-2 and CG-0
-            let motif = &multiple_motif_locations.motif_locations[0];
-            let positions_this_contig =
-                motif.get_locations_unchecked(chrom_tid);
-            for (position, strand_rule) in
-                positions_this_contig.range(start..end)
-            {
-                if let Some(rule) = positions.get_mut(position) {
-                    *rule = rule.combine(*strand_rule);
-                } else {
-                    positions.insert(*position, *strand_rule);
-                }
-                match strand_rule {
-                    StrandRule::Positive => {
-                        positive_motif_ids.insert(*position, vec![0]);
-                    }
-                    StrandRule::Negative => {
-                        negative_motif_ids.insert(*position, vec![0]);
-                    }
-                    StrandRule::Both => {
-                        positive_motif_ids.insert(*position, vec![0]);
-                        negative_motif_ids.insert(*position, vec![0]);
-                    }
-                }
-            }
-        } else if all_single_base {
-            // we have more than 1 single base
-            let single_base_motifs = multiple_motif_locations
-                .motif_locations
-                .iter()
-                .enumerate()
-                .map(|(id, ml)| (ml.motif().raw_motif.as_str(), (id, ml)))
-                .collect::<HashMap<&str, (usize, &MotifLocations)>>();
-            Self::add_single_base_motifs(
-                &mut positions,
-                &mut positive_motif_ids,
-                &mut negative_motif_ids,
-                "A",
-                "T",
-                &single_base_motifs,
-                chrom_tid,
-                start,
-                end,
-            );
-            Self::add_single_base_motifs(
-                &mut positions,
-                &mut positive_motif_ids,
-                &mut negative_motif_ids,
-                "C",
-                "G",
-                &single_base_motifs,
-                chrom_tid,
-                start,
-                end,
-            );
-        } else {
-            // we have some mixture of the above cases.. this is the most
-            // expensive.
-            for (motif_id, motif) in
-                multiple_motif_locations.motif_locations.iter().enumerate()
-            {
-                let positions_this_contig =
-                    motif.get_locations_unchecked(chrom_tid);
-                for (position, strand_rule) in
-                    positions_this_contig.range(start..end)
-                {
-                    if let Some(rule) = positions.get_mut(position) {
-                        *rule = rule.combine(*strand_rule);
-                    } else {
-                        positions.insert(*position, *strand_rule);
-                    }
-                    match strand_rule {
-                        StrandRule::Positive => {
-                            positive_motif_ids
-                                .entry(*position)
-                                .or_insert(Vec::new())
-                                .push(motif_id);
-                        }
-                        StrandRule::Negative => {
-                            negative_motif_ids
-                                .entry(*position)
-                                .or_insert(Vec::new())
-                                .push(motif_id);
-                        }
-                        StrandRule::Both => {
-                            positive_motif_ids
-                                .entry(*position)
-                                .or_insert(Vec::new())
-                                .push(motif_id);
-                            negative_motif_ids
-                                .entry(*position)
-                                .or_insert(Vec::new())
-                                .push(motif_id);
-                        }
-                    }
-                }
-            }
-        }
-
-        Self::Motif { positions, positive_motif_ids, negative_motif_ids }
-    }
-
-    fn add_single_base_motifs(
-        positions: &mut FxHashMap<u32, StrandRule>,
-        positive_motif_ids: &mut FxHashMap<u32, Vec<usize>>,
-        negative_motif_ids: &mut FxHashMap<u32, Vec<usize>>,
-        top_base: &str,
-        bottom_base: &str,
-        single_base_motifs: &HashMap<&str, (usize, &MotifLocations)>,
-        chrom_tid: u32,
-        start: u32,
-        end: u32,
-    ) {
-        // if we have A..
-        if let Some((a_id, a_mls)) = single_base_motifs.get(top_base) {
-            let positions_this_contig =
-                a_mls.get_locations_unchecked(chrom_tid);
-            // check if we have T, if so, we only need the A positions and
-            // make the strand rule "Both"
-            if let Some((t_id, _t_mls)) = single_base_motifs.get(bottom_base) {
-                for (position, _strand_rule) in
-                    positions_this_contig.range(start..end)
-                {
-                    positions.insert(*position, StrandRule::Both);
-                    positive_motif_ids.insert(*position, vec![*a_id, *t_id]);
-                    negative_motif_ids.insert(*position, vec![*a_id, *t_id]);
-                }
-            } else {
-                // else, just add the A positions, and we know the strand
-                // rule doesn't need to be combined
-                for (position, strand_rule) in
-                    positions_this_contig.range(start..end)
-                {
-                    positions.insert(*position, *strand_rule);
-                    match strand_rule {
-                        StrandRule::Positive => {
-                            positive_motif_ids.insert(*position, vec![*a_id]);
-                        }
-                        StrandRule::Negative => {
-                            negative_motif_ids.insert(*position, vec![*a_id]);
-                        }
-                        StrandRule::Both => {} // can't happen
-                    }
-                }
-            }
-        }
-    }
-
-    fn new_motif_combine_strands(
-        motif_positions: &MultipleMotifLocations,
-        chrom_tid: u32,
-        start: u32,
-        end: u32,
-    ) -> Self {
-        let mut positions = FxHashMap::<u32, StrandRule>::default();
-        let mut positive_motifs = BTreeMap::new();
-        let mut negative_motif_ids = FxHashMap::default();
-        for (motif_id, motif) in
-            motif_positions.motif_locations.iter().enumerate()
-        {
-            let positions_this_contig =
-                motif.get_locations_unchecked(chrom_tid);
-            for (position, strand_rule) in
-                positions_this_contig.range(start..end)
-            {
-                if let Some(rule) = positions.get_mut(position) {
-                    *rule = rule.combine(*strand_rule);
-                } else {
-                    positions.insert(*position, *strand_rule);
-                }
-                match strand_rule {
-                    // todo make sure I want both here.. probably doesn't matter
-                    //  since a motif can't really be both.
-                    StrandRule::Positive | StrandRule::Both => {
-                        let motif_info = motif.motif().motif_info;
-                        positive_motifs
-                            .entry(*position)
-                            .or_insert(Vec::new())
-                            .push((motif_info, motif_id));
-                    }
-                    StrandRule::Negative => {
-                        negative_motif_ids
-                            .entry(*position)
-                            .or_insert(Vec::new())
-                            .push(motif_id);
-                    }
-                }
-            }
-        }
-
-        Self::MotifCombineStrands {
-            positions,
-            positive_motifs,
-            negative_motif_ids,
-        }
-    }
-
-    fn new_regions(
-        stranded_position_filter: &StrandedPositionFilter<()>,
-        chrom_id: u32,
-        start: u32,
-        end: u32,
-    ) -> Self {
-        let start = start as u64;
-        let stop = end as u64;
-
-        let pos_intervals = stranded_position_filter
-            .pos_positions
-            .get(&chrom_id)
-            .map(|lp| {
-                lp.find(start, stop)
-                    .into_iter()
-                    .map(|iv| Iv {
-                        start: std::cmp::max(iv.start, start),
-                        stop: std::cmp::min(iv.stop, stop),
-                        val: (),
-                    })
-                    .collect::<Vec<Iv>>()
-            })
-            .unwrap_or(Vec::new());
-
-        let neg_intervals = stranded_position_filter
-            .neg_positions
-            .get(&chrom_id)
-            .map(|lp| {
-                lp.find(start, stop)
-                    .into_iter()
-                    .map(|iv| Iv {
-                        start: std::cmp::max(iv.start, start),
-                        stop: std::cmp::min(iv.stop, stop),
-                        val: (),
-                    })
-                    .collect::<Vec<Iv>>()
-            })
-            .unwrap_or(Vec::new());
-        let pos_intervals = {
-            let mut tmp = GenomeIntervals::new(pos_intervals);
-            tmp.merge_overlaps();
-            tmp
-        };
-        let neg_intervals = {
-            let mut tmp = GenomeIntervals::new(neg_intervals);
-            tmp.merge_overlaps();
-            tmp
-        };
-
-        Self::Regions { pos_intervals, neg_intervals }
-    }
-
     // semantics: return Some iff we keep that position, else None
     pub fn check_position(&self, pos: &u32) -> Option<StrandRule> {
         match &self {
@@ -408,11 +125,11 @@ impl FocusPositions {
     }
 }
 
-pub struct ChromCoordinates {
+pub(crate) struct ChromCoordinates {
     pub chrom_tid: u32,
     pub start_pos: u32,
     pub end_pos: u32,
-    pub focus_positions: FocusPositions,
+    pub focus_positions: FocusPositions2,
 }
 
 impl ChromCoordinates {
@@ -420,31 +137,8 @@ impl ChromCoordinates {
         chrom_tid: u32,
         start_pos: u32,
         end_pos: u32,
-        combine_strands: bool,
-        motif_positions: Option<&MultipleMotifLocations>,
-        position_filter: Option<&StrandedPositionFilter<()>>,
+        focus_positions: FocusPositions2,
     ) -> Self {
-        // todo/warn currently the assumption is made that motifs, if given,
-        // have  been pre-filtered so that the position filter can be
-        // ignored..
-        let focus_positions = match (motif_positions, position_filter) {
-            (Some(motif), _) => {
-                if combine_strands {
-                    FocusPositions::new_motif_combine_strands(
-                        motif, chrom_tid, start_pos, end_pos,
-                    )
-                } else {
-                    FocusPositions::new_motif(
-                        motif, chrom_tid, start_pos, end_pos,
-                    )
-                }
-            }
-            (_, Some(spf)) => {
-                FocusPositions::new_regions(spf, chrom_tid, start_pos, end_pos)
-            }
-            (None, None) => FocusPositions::AllPositions,
-        };
-
         Self { chrom_tid, start_pos, end_pos, focus_positions }
     }
 
@@ -454,7 +148,7 @@ impl ChromCoordinates {
 
     pub(crate) fn merge(self, other: Self) -> Self {
         match (&self.focus_positions, &other.focus_positions) {
-            (FocusPositions::AllPositions, FocusPositions::AllPositions) => {}
+            (FocusPositions2::AllPositions, FocusPositions2::AllPositions) => {}
             _ => todo!("must be 'AllPositions' to merge"),
         }
         assert_eq!(self.chrom_tid, other.chrom_tid);
@@ -462,13 +156,13 @@ impl ChromCoordinates {
             chrom_tid: self.chrom_tid,
             start_pos: std::cmp::min(self.start_pos, other.start_pos),
             end_pos: std::cmp::max(self.end_pos, other.end_pos),
-            focus_positions: FocusPositions::AllPositions,
+            focus_positions: FocusPositions2::AllPositions,
         }
     }
 }
 
 #[derive(new)]
-pub struct MultiChromCoordinates(pub Vec<ChromCoordinates>);
+pub(crate) struct MultiChromCoordinates(pub Vec<ChromCoordinates>);
 
 impl MultiChromCoordinates {
     pub fn total_length(&self) -> u64 {
@@ -486,7 +180,7 @@ impl TotalLength for Vec<MultiChromCoordinates> {
     }
 }
 
-impl TotalLength for ReferenceIntervalsFeeder {
+impl TotalLength for ReferenceIntervalBatchesFeeder {
     fn total_length(&self) -> u64 {
         self.contigs.iter().fold(self.curr_contig.length as u64, |agg, next| {
             agg.saturating_add(next.length as u64)
@@ -494,7 +188,7 @@ impl TotalLength for ReferenceIntervalsFeeder {
     }
 }
 
-pub struct ReferenceIntervalsFeeder {
+pub(crate) struct ReferenceIntervalBatchesFeeder {
     contigs: VecDeque<ReferenceRecord>,
     batch_size: usize,
     interval_size: u32,
@@ -506,7 +200,7 @@ pub struct ReferenceIntervalsFeeder {
     done: bool,
 }
 
-impl ReferenceIntervalsFeeder {
+impl ReferenceIntervalBatchesFeeder {
     pub fn new(
         reference_records: Vec<ReferenceRecord>,
         batch_size: usize,
@@ -570,7 +264,6 @@ impl ReferenceIntervalsFeeder {
 
         loop {
             if self.done {
-                // debug!("done!");
                 break;
             } else if ret.len() >= self.batch_size {
                 break;
@@ -585,33 +278,33 @@ impl ReferenceIntervalsFeeder {
                 self.curr_contig.end(),
             );
             // get the sequence here.
-            let (motifs, end) = if let Some(lookup) = self.motifs.as_mut() {
-                // todo change everything to u64
-                let range = (start as u64)..(end as u64);
-                let (pos, end) = lookup.get_motif_positions(
-                    &self.curr_contig.name,
-                    tid,
-                    self.curr_contig.end(),
-                    range,
-                    self.position_filter.as_ref(),
-                    self.combine_strands,
-                )?;
-                (Some(pos), end)
-            } else {
-                (None, end)
-            };
+            let (focus_positions, end) =
+                if let Some(lookup) = self.motifs.as_mut() {
+                    // todo change everything to u64
+                    let range = (start as u64)..(end as u64);
+                    let (fps, end) = lookup.get_motif_positions(
+                        &self.curr_contig.name,
+                        tid,
+                        self.curr_contig.end(),
+                        range,
+                        self.position_filter.as_ref(),
+                        self.combine_strands,
+                    )?;
+                    (fps, end)
+                } else if let Some(_pos_filt) = self.position_filter.as_ref() {
+                    // TODO: Currently blocked by check that include-bed always
+                    // has either a motif or modified bases,
+                    // remove this eventually.
+                    todo!()
+                } else {
+                    (FocusPositions2::AllPositions, end)
+                };
             let end = std::cmp::min(end, self.curr_contig.end());
             // in the "short contig" case, chrom_coords.len() will be less than
             // interval size so batch length will be less than
             // interval size for a few rounds
-            let chrom_coords = ChromCoordinates::new(
-                tid,
-                start,
-                end,
-                self.combine_strands,
-                motifs.as_ref(),
-                self.position_filter.as_ref(),
-            );
+            let chrom_coords =
+                ChromCoordinates::new(tid, start, end, focus_positions);
             batch_length += chrom_coords.len();
             batch.push(chrom_coords);
             if batch_length >= self.interval_size {
@@ -643,11 +336,140 @@ impl ReferenceIntervalsFeeder {
     }
 }
 
-impl Iterator for ReferenceIntervalsFeeder {
+impl Iterator for ReferenceIntervalBatchesFeeder {
     type Item = anyhow::Result<Vec<MultiChromCoordinates>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_batch().transpose()
+    }
+}
+
+impl TotalLength for ChromCoordinatesFeeder {
+    fn total_length(&self) -> u64 {
+        self.contigs.iter().fold(self.curr_contig.length as u64, |agg, next| {
+            agg.saturating_add(next.length as u64)
+        })
+    }
+}
+
+pub(crate) struct ChromCoordinatesFeeder {
+    contigs: VecDeque<ReferenceRecord>,
+    interval_size: u32,
+    motifs: Option<MotifLocationsLookup>,
+    position_filter: Option<StrandedPositionFilter<()>>,
+    combine_strands: bool,
+    curr_contig: ReferenceRecord,
+    curr_position: u32,
+    done: bool,
+}
+
+impl ChromCoordinatesFeeder {
+    pub(crate) fn new(
+        reference_records: Vec<ReferenceRecord>,
+        interval_size: u32,
+        motifs: Option<MotifLocationsLookup>,
+        combine_strands: bool,
+        position_filter: Option<StrandedPositionFilter<()>>,
+    ) -> anyhow::Result<Self> {
+        if combine_strands & !motifs.is_some() {
+            bail!("cannot combine strands without a motif")
+        }
+        let mut contigs = reference_records
+            .into_iter()
+            .filter(|rr| {
+                if let Some(motifs) = motifs.as_ref() {
+                    motifs.has_sequence(&rr.name)
+                } else {
+                    true
+                }
+            })
+            .collect::<VecDeque<_>>();
+        let n_contigs = contigs.iter().map(|r| r.tid).unique().count();
+
+        if n_contigs == 1 {
+            debug!(
+                "there is a single contig to work on (in {} parts)",
+                contigs.len()
+            );
+        } else {
+            debug!(
+                "there are {n_contigs} contig(s) to work on ({} parts)",
+                contigs.len()
+            );
+        }
+        let curr_contig = contigs
+            .pop_front()
+            .ok_or(anyhow!("should be at least 1 contig"))?;
+        let curr_position = curr_contig.start;
+        Ok(Self {
+            contigs,
+            interval_size,
+            motifs,
+            position_filter,
+            combine_strands,
+            curr_contig,
+            curr_position,
+            done: false,
+        })
+    }
+
+    fn update_current(&mut self, end: u32) {
+        if end >= self.curr_contig.end() {
+            if let Some(rr) = self.contigs.pop_front() {
+                self.curr_position = rr.start;
+                self.curr_contig = rr;
+            } else {
+                self.done = true;
+            }
+        } else {
+            self.curr_position = end
+        }
+    }
+    fn get_next(&mut self) -> MkResult<Option<ChromCoordinates>> {
+        if self.done {
+            return Ok(None);
+        }
+        let start = self.curr_position;
+        let tid = self.curr_contig.tid;
+        let end =
+            std::cmp::min(start + self.interval_size, self.curr_contig.end());
+
+        let (focus_positions, end) = if let Some(lookup) = self.motifs.as_mut()
+        {
+            // todo change everything to u64
+            let range = (start as u64)..(end as u64);
+            let (fps, end) = lookup.get_motif_positions(
+                &self.curr_contig.name,
+                tid,
+                self.curr_contig.end(),
+                range,
+                self.position_filter.as_ref(),
+                self.combine_strands,
+            )?;
+            (fps, end)
+        } else if let Some(_pos_filt) = self.position_filter.as_ref() {
+            // TODO: Currently blocked by check that include-bed always has
+            // either a motif or modified bases, remove this
+            // eventually.
+            todo!()
+        } else {
+            (FocusPositions2::AllPositions, end)
+        };
+
+        let end = std::cmp::min(end, self.curr_contig.end());
+        let chrom_coords =
+            ChromCoordinates::new(tid, start, end, focus_positions);
+        self.update_current(end);
+
+        Ok(Some(chrom_coords))
+    }
+}
+
+impl Iterator for ChromCoordinatesFeeder {
+    type Item = MkResult<ChromCoordinates>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.get_next().transpose()
     }
 }
 

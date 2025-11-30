@@ -29,6 +29,10 @@ pub enum MkError {
     HtsLibError(#[from] rust_htslib::errors::Error),
     #[error("no-modbase-info")]
     NoModifiedBaseInformation,
+    #[error("invalid-raw-modcode")]
+    InvalidRawModCode,
+    #[error("duplex-not-supported")]
+    DuplexNotSupported,
 
     // DNA/RNA "type" symbol parsing
     #[error("invalid-DNA-RNA-base")]

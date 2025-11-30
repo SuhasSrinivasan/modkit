@@ -1,10 +1,12 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
-use std::io::{BufWriter, Stdout, Write};
+use std::io::{stdout, BufWriter, Cursor, Stdout, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result as AnyhowResult};
+use bitvec::order::Lsb0;
+use bitvec::view::BitView;
 use charming::component::{
     Axis, DataZoom, DataZoomType, Feature, Legend, Restore, SaveAsImage, Title,
     Toolbox, ToolboxDataZoom,
@@ -14,26 +16,32 @@ use charming::element::{
 };
 use charming::series::Bar;
 use charming::{Chart, HtmlRenderer};
+use crossbeam_channel::Sender;
 use derive_new::new;
 use gzp::deflate::Bgzf;
 use gzp::par::compress::{ParCompress, ParCompressBuilder};
+use indicatif::{MultiProgress, ProgressBar};
 use itertools::Itertools;
 use log::{debug, info, warn};
 use prettytable::format::FormatBuilder;
 use prettytable::{row, Table};
 use random_color::RandomColor;
-use rustc_hash::FxHashMap;
 
 use crate::mod_base_code::{
     BaseState, DnaBase, ModCodeRepr, ProbHistogram, DNA_BASE_COLORS, MOD_COLORS,
 };
 use crate::pileup::duplex::DuplexModBasePileup;
-use crate::pileup::{ModBasePileup, PartitionKey, PileupFeatureCounts};
+use crate::pileup::{ModBasePileup2, PileupFeatureCounts2};
 use crate::summarize::ModSummary;
 use crate::thresholds::Percentiles;
+use crate::util::{get_ticker_with_rate, TAB};
 
 pub trait PileupWriter<T> {
-    fn write(&mut self, item: T, motif_labels: &[String]) -> AnyhowResult<u64>;
+    fn write(
+        &mut self,
+        item: T,
+        motif_labels: &[String],
+    ) -> anyhow::Result<u64>;
 }
 
 pub trait OutWriter<T> {
@@ -43,6 +51,105 @@ pub trait OutWriter<T> {
 pub struct BedMethylWriter<T: Write> {
     buf_writer: BufWriter<T>,
     tabs_and_spaces: bool,
+}
+
+pub struct BedMethylWriter2<T: Write> {
+    buff: Cursor<Vec<u8>>,
+    inner: RecordingWriter<T>,
+    return_mem: Sender<ModBasePileup2>,
+}
+
+impl BedMethylWriter2<BufWriter<std::io::Stdout>> {
+    pub(crate) fn new_stdout(
+        with_header: bool,
+        multi_progress: MultiProgress,
+        return_mem: Sender<ModBasePileup2>,
+    ) -> anyhow::Result<Self> {
+        let write_pb = multi_progress.add(get_ticker_with_rate());
+        write_pb.set_message(format!("B written stdout"));
+        write_pb.set_position(0);
+        let mut writer = RecordingWriter::new_stdout(write_pb);
+        if with_header {
+            writer.write(bedmethyl_header().as_bytes())?;
+        }
+        let buff = Cursor::new(vec![0u8; 1 << 20]);
+        Ok(Self { buff, inner: writer, return_mem })
+    }
+}
+
+impl BedMethylWriter2<ParCompress<Bgzf>> {
+    pub(crate) fn new_bgzf(
+        out_path: &PathBuf,
+        with_header: bool,
+        multi_progress: MultiProgress,
+        return_mem: Sender<ModBasePileup2>,
+        bgzf_threads: usize,
+    ) -> anyhow::Result<Self> {
+        let fh = File::create(out_path)?;
+        let write_pb = multi_progress.add(get_ticker_with_rate());
+        let out_fn = out_path
+            .file_name()
+            .and_then(|x| x.to_str())
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| "failed to parse filename".to_string());
+        write_pb.set_message(format!("B written to output: {out_fn}"));
+        write_pb.set_position(0);
+        let mut writer = RecordingWriter::new_bgzf(fh, bgzf_threads, write_pb);
+        if with_header {
+            writer.write(bedmethyl_header().as_bytes())?;
+        }
+        let buff = Cursor::new(vec![0u8; 1 << 20]);
+        Ok(Self { buff, inner: writer, return_mem })
+    }
+}
+
+impl BedMethylWriter2<BufWriter<File>> {
+    pub(crate) fn new(
+        out_path: &PathBuf,
+        with_header: bool,
+        multi_progress: MultiProgress,
+        return_mem: Sender<ModBasePileup2>,
+    ) -> anyhow::Result<Self> {
+        let fh = File::create(out_path)?;
+        let write_pb = multi_progress.add(get_ticker_with_rate());
+        let out_fn = out_path
+            .file_name()
+            .and_then(|x| x.to_str())
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| "failed to parse filename".to_string());
+        write_pb.set_message(format!("B written to output: {out_fn}"));
+        write_pb.set_position(0);
+        let mut writer = RecordingWriter::new_file(fh, write_pb);
+        if with_header {
+            writer.write(bedmethyl_header().as_bytes())?;
+        }
+        let buff = Cursor::new(vec![0u8; 1 << 20]);
+        Ok(Self { buff, inner: writer, return_mem })
+    }
+}
+
+impl<T: Write> PileupWriter<ModBasePileup2> for BedMethylWriter2<T> {
+    fn write(
+        &mut self,
+        item: ModBasePileup2,
+        _motif_labels: &[String],
+    ) -> anyhow::Result<u64> {
+        self.buff.set_position(0);
+        let n_rows = item.position_feature_counts.len() as u64;
+        let chrom_name = &item.chrom_name;
+        for pfc in item.position_feature_counts.iter() {
+            format_feature_counts2(chrom_name, &mut self.buff, pfc).unwrap();
+            let pos = self.buff.position() as usize;
+            if pos >= 1 << 20 {
+                self.inner.write(&self.buff.get_ref()[..pos]).unwrap();
+                self.buff.set_position(0);
+            }
+        }
+        let pos = self.buff.position() as usize;
+        self.inner.write(&self.buff.get_ref()[..pos]).unwrap();
+        let _ = self.return_mem.send(item);
+        Ok(n_rows)
+    }
 }
 
 pub fn bedmethyl_header() -> String {
@@ -88,100 +195,60 @@ impl<T: Write + Sized> BedMethylWriter<T> {
     }
 
     #[inline]
-    fn write_feature_counts(
-        pos: u32,
+    fn write_feature_counts2(
         chrom_name: &str,
-        feature_counts: &[PileupFeatureCounts],
+        feature_count: &PileupFeatureCounts2,
         writer: &mut BufWriter<T>,
-        tabs_and_spaces: bool,
-        motif_labels: &[String],
-    ) -> AnyhowResult<u64> {
-        let tab = '\t';
-        let space = if tabs_and_spaces { ' ' } else { tab };
-        let mut rows_written = 0u64;
-        let raw_code_only = motif_labels.len() < 2;
-        for feature_count in feature_counts {
-            let name = if raw_code_only {
-                format!("{}", feature_count.raw_mod_code)
-            } else {
-                feature_count
-                    .motif_idx
-                    .and_then(|i| motif_labels.get(i))
-                    .map(|label| {
-                        format!("{},{}", feature_count.raw_mod_code, label)
-                    })
-                    .unwrap_or(format!("{}", feature_count.raw_mod_code))
-            };
-            let row = format!(
-                "{}{tab}\
-                 {}{tab}\
-                 {}{tab}\
-                 {}{tab}\
-                 {}{tab}\
-                 {}{tab}\
-                 {}{tab}\
-                 {}{tab}\
-                 {}{tab}\
-                 {}{space}\
-                 {}{space}\
-                 {}{space}\
-                 {}{space}\
-                 {}{space}\
-                 {}{space}\
-                 {}{space}\
-                 {}{space}\
-                 {}\n",
-                chrom_name,
-                pos,
-                pos + 1,
-                name,
-                feature_count.filtered_coverage,
-                feature_count.raw_strand,
-                pos,
-                pos + 1,
-                "255,0,0",
-                feature_count.filtered_coverage,
-                format!("{:.2}", feature_count.fraction_modified * 100f32),
-                feature_count.n_modified,
-                feature_count.n_canonical,
-                feature_count.n_other_modified,
-                feature_count.n_delete,
-                feature_count.n_filtered,
-                feature_count.n_diff,
-                feature_count.n_nocall,
-            );
-            writer
-                .write(row.as_bytes())
-                .with_context(|| "failed to write row")?;
-            rows_written += 1;
-        }
+    ) -> anyhow::Result<()> {
+        let pos = feature_count.position;
+        let pp1 = pos + 1;
+        let mut buff = Cursor::new([0u8; 512]);
+        let fraction_modified = feature_count.n_modified as f32
+            / feature_count.filtered_coverage as f32;
+        write!(&mut buff, "{}{TAB}", chrom_name)?;
+        write!(&mut buff, "{pos}{TAB}{pp1}{TAB}")?;
+        write!(&mut buff, "{}{TAB}", feature_count.mod_code)?;
+        write!(&mut buff, "{}{TAB}", feature_count.filtered_coverage)?;
+        write!(&mut buff, "{}{TAB}", feature_count.raw_strand)?;
+        write!(&mut buff, "{pos}{TAB}{pp1}{TAB}")?;
+        write!(&mut buff, "255,0,0{TAB}")?;
+        write!(&mut buff, "{}{TAB}", feature_count.filtered_coverage)?;
+        write!(&mut buff, "{:.2}{TAB}", fraction_modified * 100f32)?;
+        write!(&mut buff, "{}{TAB}", feature_count.n_modified)?;
+        write!(&mut buff, "{}{TAB}", feature_count.n_canonical)?;
+        write!(&mut buff, "{}{TAB}", feature_count.n_other_modified)?;
+        write!(&mut buff, "{}{TAB}", feature_count.n_delete)?;
+        write!(&mut buff, "{}{TAB}", feature_count.n_filtered)?;
+        write!(&mut buff, "{}{TAB}", feature_count.n_diff)?;
+        write!(&mut buff, "{}\n", feature_count.n_nocall)?;
+        let pos = buff.position() as usize;
 
-        Ok(rows_written)
+        writer
+            .write(&buff.get_ref()[..pos])
+            .with_context(|| "failed to write row")?;
+
+        Ok(())
     }
 }
 
-impl<T: Write> PileupWriter<ModBasePileup> for BedMethylWriter<T> {
+impl<T: Write> PileupWriter<ModBasePileup2> for BedMethylWriter<T> {
     fn write(
         &mut self,
-        item: ModBasePileup,
-        motif_labels: &[String],
-    ) -> AnyhowResult<u64> {
+        item: ModBasePileup2,
+        _motif_labels: &[String],
+    ) -> anyhow::Result<u64> {
         let mut rows_written = 0;
-        for (pos, feature_counts) in item.iter_counts_sorted() {
-            match feature_counts.get(&PartitionKey::NoKey) {
-                Some(feature_counts) => {
-                    rows_written += BedMethylWriter::write_feature_counts(
-                        *pos,
-                        &item.chrom_name,
-                        &feature_counts,
-                        &mut self.buf_writer,
-                        self.tabs_and_spaces,
-                        motif_labels,
-                    )?;
-                }
-                None => {}
-            }
+        for feature_counts in
+            item.position_feature_counts.iter().filter(|x| x.is_valid())
+        {
+            BedMethylWriter::write_feature_counts2(
+                &item.chrom_name,
+                feature_counts,
+                &mut self.buf_writer,
+            )?;
+            rows_written += 1;
         }
+        std::thread::spawn(|| drop(item));
         Ok(rows_written)
     }
 }
@@ -258,128 +325,105 @@ impl<T: Write> PileupWriter<DuplexModBasePileup> for BedMethylWriter<T> {
     }
 }
 
-#[derive(new, Hash, Eq, PartialEq, Copy, Clone)]
-struct BedGraphFileKey {
-    partition_key: PartitionKey,
-    strand: char,
-    mod_code_repr: ModCodeRepr,
+pub struct MultipleMotifBedmethylWriter<T: Write> {
+    writer: RecordingWriter<T>,
+    return_mem: Sender<ModBasePileup2>,
 }
 
-pub struct BedGraphWriter {
-    prefix: Option<String>,
-    out_dir: PathBuf,
-    router: HashMap<(BedGraphFileKey, String), BufWriter<File>>,
-    use_groupings: bool,
+impl MultipleMotifBedmethylWriter<BufWriter<std::io::Stdout>> {
+    pub(crate) fn new_stdout(
+        with_header: bool,
+        return_mem: Sender<ModBasePileup2>,
+        multi_progress: MultiProgress,
+    ) -> anyhow::Result<Self> {
+        let mut writer = BufWriter::new(stdout());
+        if with_header {
+            writer.write(bedmethyl_header().as_bytes())?;
+        };
+        let write_pb = multi_progress.add(get_ticker_with_rate());
+        write_pb.set_message(format!("B written to stdout"));
+        write_pb.set_position(0);
+        let writer = RecordingWriter { inner: writer, pb: write_pb };
+
+        Ok(Self { writer, return_mem })
+    }
 }
 
-impl BedGraphWriter {
-    pub fn new(
-        out_dir: &str,
-        prefix: Option<&String>,
-        use_groupings: bool,
-    ) -> AnyhowResult<Self> {
-        let out_dir_fp = Path::new(out_dir).to_path_buf();
-        if !out_dir_fp.exists() {
-            info!("creating directory for bedgraph output at {out_dir}");
-            std::fs::create_dir_all(out_dir_fp.clone())?;
+impl MultipleMotifBedmethylWriter<BufWriter<File>> {
+    pub(crate) fn new_file(
+        out_path: &PathBuf,
+        with_header: bool,
+        multi_progress: MultiProgress,
+        return_mem: Sender<ModBasePileup2>,
+    ) -> anyhow::Result<Self> {
+        let fh = File::create(out_path)?;
+        let write_pb = multi_progress.add(get_ticker_with_rate());
+        let out_fn = out_path
+            .file_name()
+            .and_then(|x| x.to_str())
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| "failed to parse filename".to_string());
+        write_pb.set_message(format!("B written to output: {out_fn}"));
+        write_pb.set_position(0);
+
+        let mut writer = RecordingWriter::new_file(fh, write_pb);
+        if with_header {
+            writer.write(bedmethyl_header().as_bytes())?;
         }
-        Ok(Self {
-            prefix: prefix.map(|s| s.to_owned()),
-            out_dir: out_dir_fp,
-            router: HashMap::new(),
-            use_groupings,
-        })
-    }
 
-    fn get_writer_for_modstrand(
-        &mut self,
-        key: BedGraphFileKey,
-        key_name: &str,
-        label: String,
-    ) -> &mut BufWriter<File> {
-        self.router.entry((key, label.clone())).or_insert_with(|| {
-            let strand = key.strand;
-            let delim = if key_name == "" { "" } else { "_" };
-            let strand_label = match strand {
-                '+' => "positive",
-                '-' => "negative",
-                '.' => "combined",
-                _ => "_unknown",
-            };
-            let filename = if let Some(p) = &self.prefix {
-                format!("{p}_{key_name}{delim}{label}_{strand_label}.bedgraph")
-            } else {
-                format!("{key_name}{delim}{label}_{strand_label}.bedgraph")
-            };
-            let fp = self.out_dir.join(filename);
-            // todo(arand) danger, should remove this unwrap
-            let fh = File::create(fp).unwrap();
-            BufWriter::new(fh)
-        })
+        Ok(Self { writer, return_mem })
     }
 }
 
-impl PileupWriter<ModBasePileup> for BedGraphWriter {
+impl<T: Write> PileupWriter<ModBasePileup2>
+    for MultipleMotifBedmethylWriter<T>
+{
     fn write(
         &mut self,
-        item: ModBasePileup,
+        item: ModBasePileup2,
         motif_labels: &[String],
-    ) -> AnyhowResult<u64> {
-        let mut rows_written = 0;
-        let tab = '\t';
-        // let raw_code_only = motif_labels.len() < 2;
-        for (pos, feature_counts) in item.iter_counts_sorted() {
-            for (partition_key, pileup_feature_counts) in feature_counts {
-                let key_name = match partition_key {
-                    PartitionKey::NoKey => {
-                        if self.use_groupings {
-                            UNGROUPED
-                        } else {
-                            ""
-                        }
-                    }
-                    PartitionKey::Key(idx) => item
-                        .partition_keys
-                        .get_index(*idx)
-                        .map(|s| s.as_str())
-                        .unwrap_or(NOT_FOUND),
-                };
-                for feature_count in pileup_feature_counts {
-                    let key = BedGraphFileKey::new(
-                        *partition_key,
-                        feature_count.raw_strand,
-                        feature_count.raw_mod_code,
-                    );
-                    let label = if let Some(idx) = feature_count.motif_idx {
-                        motif_labels
-                            .get(idx)
-                            .map(|l| {
-                                format!(
-                                    "{}_{}",
-                                    key.mod_code_repr,
-                                    l.replace(",", "")
-                                )
-                            })
-                            .unwrap_or(format!("{}", key.mod_code_repr))
-                    } else {
-                        format!("{}", key.mod_code_repr)
-                    };
-                    let fh =
-                        self.get_writer_for_modstrand(key, key_name, label);
-                    let row = format!(
-                        "{}{tab}{}{tab}{}{tab}{}{tab}{}\n",
-                        item.chrom_name,
-                        pos,
-                        pos + 1,
-                        feature_count.fraction_modified,
-                        feature_count.filtered_coverage,
-                    );
-                    fh.write(row.as_bytes()).unwrap();
-                    rows_written += 1;
-                }
+    ) -> anyhow::Result<u64> {
+        let mut rows_written = 0u64;
+        let chrom_name = &item.chrom_name;
+        let mut buff = Cursor::new([0u8; 512]);
+        for feature_count in item.position_feature_counts.iter() {
+            let idxs = feature_count.motif_idxs.view_bits::<Lsb0>().iter_ones();
+            for idx in idxs {
+                let motif_label = &motif_labels[idx];
+                let pos = feature_count.position;
+                let pp1 = pos + 1;
+                let fraction_modified = feature_count.n_modified as f32
+                    / feature_count.filtered_coverage as f32;
+                write!(&mut buff, "{}{TAB}", chrom_name)?;
+                write!(&mut buff, "{pos}{TAB}{pp1}{TAB}")?;
+                write!(
+                    &mut buff,
+                    "{},{motif_label}{TAB}",
+                    feature_count.mod_code
+                )?;
+                write!(&mut buff, "{}{TAB}", feature_count.filtered_coverage)?;
+                write!(&mut buff, "{}{TAB}", feature_count.raw_strand)?;
+                write!(&mut buff, "{pos}{TAB}{pp1}{TAB}")?;
+                write!(&mut buff, "255,0,0{TAB}")?;
+                write!(&mut buff, "{}{TAB}", feature_count.filtered_coverage)?;
+                write!(&mut buff, "{:.2}{TAB}", fraction_modified * 100f32)?;
+                write!(&mut buff, "{}{TAB}", feature_count.n_modified)?;
+                write!(&mut buff, "{}{TAB}", feature_count.n_canonical)?;
+                write!(&mut buff, "{}{TAB}", feature_count.n_other_modified)?;
+                write!(&mut buff, "{}{TAB}", feature_count.n_delete)?;
+                write!(&mut buff, "{}{TAB}", feature_count.n_filtered)?;
+                write!(&mut buff, "{}{TAB}", feature_count.n_diff)?;
+                write!(&mut buff, "{}\n", feature_count.n_nocall)?;
+                let pos = buff.position() as usize;
+
+                self.writer
+                    .write(&buff.get_ref()[..pos])
+                    .with_context(|| "failed to write row")?;
+                buff.set_position(0);
+                rows_written = rows_written.saturating_add(1);
             }
         }
-
+        let _ = self.return_mem.send(item);
         Ok(rows_written)
     }
 }
@@ -1002,81 +1046,306 @@ impl OutWriter<SampledProbs> for TsvWriter<BufWriter<Stdout>> {
     }
 }
 
-pub struct PartitioningBedMethylWriter {
-    prefix: Option<String>,
-    out_dir: PathBuf,
-    tabs_and_spaces: bool,
-    router: FxHashMap<String, BufWriter<File>>,
+#[inline]
+fn format_feature_counts2(
+    chrom_name: &String,
+    buff: &mut Cursor<Vec<u8>>,
+    feature_count: &PileupFeatureCounts2,
+) -> anyhow::Result<()> {
+    let pos = feature_count.position;
+    let pp1 = pos + 1;
+    let fraction_modified = feature_count.n_modified as f32
+        / feature_count.filtered_coverage as f32;
+    write!(buff, "{}{TAB}", chrom_name)?;
+    write!(buff, "{pos}{TAB}{pp1}{TAB}")?;
+    write!(buff, "{}{TAB}", feature_count.mod_code)?;
+    write!(buff, "{}{TAB}", feature_count.filtered_coverage)?;
+    write!(buff, "{}{TAB}", feature_count.raw_strand)?;
+    write!(buff, "{pos}{TAB}{pp1}{TAB}")?;
+    write!(buff, "255,0,0{TAB}")?;
+    write!(buff, "{}{TAB}", feature_count.filtered_coverage)?;
+    write!(buff, "{:.2}{TAB}", fraction_modified * 100f32)?;
+    write!(buff, "{}{TAB}", feature_count.n_modified)?;
+    write!(buff, "{}{TAB}", feature_count.n_canonical)?;
+    write!(buff, "{}{TAB}", feature_count.n_other_modified)?;
+    write!(buff, "{}{TAB}", feature_count.n_delete)?;
+    write!(buff, "{}{TAB}", feature_count.n_filtered)?;
+    write!(buff, "{}{TAB}", feature_count.n_diff)?;
+    write!(buff, "{}\n", feature_count.n_nocall)?;
+    Ok(())
 }
 
-impl PartitioningBedMethylWriter {
-    pub fn new(
-        out_path: &String,
-        only_tabs: bool,
+struct RecordingWriter<T: Write> {
+    inner: T,
+    pb: ProgressBar,
+}
+
+impl RecordingWriter<BufWriter<std::io::Stdout>> {
+    fn new_stdout(pb: ProgressBar) -> Self {
+        Self { inner: BufWriter::with_capacity(1 << 20, std::io::stdout()), pb }
+    }
+}
+
+impl RecordingWriter<BufWriter<File>> {
+    fn new_file(file: File, pb: ProgressBar) -> Self {
+        Self { inner: BufWriter::with_capacity(1 << 20, file), pb }
+    }
+}
+
+impl RecordingWriter<ParCompress<Bgzf>> {
+    fn new_bgzf(file: File, compress_threads: usize, pb: ProgressBar) -> Self {
+        let inner = ParCompressBuilder::<Bgzf>::new()
+            .num_threads(compress_threads)
+            .unwrap()
+            .from_writer(file);
+        Self { inner, pb }
+    }
+}
+impl<T: Write> RecordingWriter<T> {
+    fn write(&mut self, bulk: &[u8]) -> anyhow::Result<()> {
+        let n = bulk.len();
+        self.inner.write_all(bulk)?;
+        self.pb.inc(n as u64);
+        self.flush()?;
+        Ok(())
+    }
+
+    fn flush(&mut self) -> anyhow::Result<()> {
+        self.inner.flush()?;
+        Ok(())
+    }
+}
+
+impl<T: Write> Drop for RecordingWriter<T> {
+    fn drop(&mut self) {
+        self.pb.finish_and_clear();
+        let _ = self.inner.flush();
+    }
+}
+
+pub struct PhasedBedMethylWriter<T: Write> {
+    hp1_writer: RecordingWriter<T>,
+    hp2_writer: RecordingWriter<T>,
+    combined_writer: RecordingWriter<T>,
+    return_mem: Sender<ModBasePileup2>,
+}
+
+impl PhasedBedMethylWriter<BufWriter<File>> {
+    fn make_writer(
+        out_dir: &PathBuf,
+        prefix: &str,
+        hp_label: &str,
+        force: bool,
+        multi_progress: MultiProgress,
+    ) -> anyhow::Result<RecordingWriter<BufWriter<File>>> {
+        let filename = format!("{prefix}{hp_label}.bedmethyl");
+        let path = out_dir.join(Path::new(&filename));
+        let file =
+            if force { File::create(path) } else { File::create_new(path) }?;
+        let write_pb = multi_progress.add(get_ticker_with_rate());
+        write_pb.set_message(format!("B written: {hp_label}"));
+        write_pb.set_position(0);
+        let writer = RecordingWriter::new_file(file, write_pb);
+        Ok(writer)
+    }
+
+    pub fn new_file(
+        out_dir: &PathBuf,
         prefix: Option<&String>,
+        force: bool,
+        multi_progress: MultiProgress,
+        return_mem: Sender<ModBasePileup2>,
     ) -> anyhow::Result<Self> {
-        let dir_path = Path::new(out_path);
-        if !dir_path.is_dir() {
-            info!("creating {out_path}");
-            std::fs::create_dir_all(dir_path)?;
-        }
-        let out_dir = dir_path.to_path_buf();
-        let prefix = prefix.cloned();
-        let router = FxHashMap::default();
-        Ok(Self { out_dir, prefix, router, tabs_and_spaces: !only_tabs })
-    }
-
-    fn get_writer_for_key(&mut self, key_name: &str) -> &mut BufWriter<File> {
-        self.router.entry(key_name.to_owned()).or_insert_with(|| {
-            let filename = if let Some(prefix) = self.prefix.as_ref() {
-                format!("{prefix}_{key_name}.bed")
-            } else {
-                format!("{key_name}.bed")
-            };
-            let fp = self.out_dir.join(filename);
-            let fh = File::create(fp).unwrap();
-
-            BufWriter::new(fh)
-        })
+        let prefix = prefix.map(|x| format!("{x}_")).unwrap_or("".to_string());
+        let hp1_writer = Self::make_writer(
+            &out_dir,
+            &prefix,
+            "hp1",
+            force,
+            multi_progress.clone(),
+        )?;
+        let hp2_writer = Self::make_writer(
+            &out_dir,
+            &prefix,
+            "hp2",
+            force,
+            multi_progress.clone(),
+        )?;
+        let combined_writer = Self::make_writer(
+            &out_dir,
+            &prefix,
+            "combined",
+            force,
+            multi_progress.clone(),
+        )?;
+        Ok(Self { hp1_writer, hp2_writer, combined_writer, return_mem })
     }
 }
 
-const NOT_FOUND: &str = "not_found";
-const UNGROUPED: &str = "ungrouped";
+impl PhasedBedMethylWriter<ParCompress<Bgzf>> {
+    fn make_writer(
+        out_dir: &PathBuf,
+        prefix: &str,
+        hp_label: &str,
+        force: bool,
+        compression_threads: usize,
+        multi_progress: MultiProgress,
+    ) -> anyhow::Result<RecordingWriter<ParCompress<Bgzf>>> {
+        let filename = format!("{prefix}{hp_label}.bed.gz");
+        let path = out_dir.join(Path::new(&filename));
+        let file =
+            if force { File::create(path) } else { File::create_new(path) }?;
+        let write_pb = multi_progress.add(get_ticker_with_rate());
+        write_pb.set_message(format!("B written: {hp_label}"));
+        write_pb.set_position(0);
+        let writer =
+            RecordingWriter::new_bgzf(file, compression_threads, write_pb);
+        Ok(writer)
+    }
 
-impl PileupWriter<ModBasePileup> for PartitioningBedMethylWriter {
+    pub fn new_bgzf(
+        out_dir: &PathBuf,
+        prefix: Option<&String>,
+        force: bool,
+        multi_progress: MultiProgress,
+        return_mem: Sender<ModBasePileup2>,
+        compression_threads: usize,
+    ) -> anyhow::Result<Self> {
+        let prefix = prefix.map(|x| format!("{x}_")).unwrap_or("".to_string());
+        let hp1_writer = Self::make_writer(
+            &out_dir,
+            &prefix,
+            "hp1",
+            force,
+            compression_threads,
+            multi_progress.clone(),
+        )?;
+        let hp2_writer = Self::make_writer(
+            &out_dir,
+            &prefix,
+            "hp2",
+            force,
+            compression_threads,
+            multi_progress.clone(),
+        )?;
+        let combined_writer = Self::make_writer(
+            &out_dir,
+            &prefix,
+            "combined",
+            force,
+            compression_threads,
+            multi_progress.clone(),
+        )?;
+        Ok(Self { hp1_writer, hp2_writer, combined_writer, return_mem })
+    }
+}
+
+impl<T> PileupWriter<ModBasePileup2> for PhasedBedMethylWriter<T>
+where
+    T: Write + Send,
+{
     fn write(
         &mut self,
-        item: ModBasePileup,
-        motif_labels: &[String],
-    ) -> AnyhowResult<u64> {
-        let tabs_and_spaces = self.tabs_and_spaces;
-        let mut rows_written = 0u64;
-        for (&pos, partitioned_feature_counts) in item.iter_counts_sorted() {
-            for (&partition_key, pileup_feature_counts) in
-                partitioned_feature_counts
-            {
-                let key_name = match partition_key {
-                    PartitionKey::NoKey => UNGROUPED,
-                    PartitionKey::Key(idx) => item
-                        .partition_keys
-                        .get_index(idx)
-                        .map(|s| s.as_str())
-                        .unwrap_or(NOT_FOUND),
-                };
+        item: ModBasePileup2,
+        _motif_labels: &[String],
+    ) -> anyhow::Result<u64> {
+        let chrom_name = &item.chrom_name;
+        let combined_counts = &item.position_feature_counts;
+        let [hp1, hp2] = &item.phased_feature_counts;
+        let total_rows = combined_counts.len() + hp1.len() + hp2.len();
 
-                let writer = self.get_writer_for_key(key_name);
-                rows_written += BedMethylWriter::write_feature_counts(
-                    pos,
-                    &item.chrom_name,
-                    &pileup_feature_counts,
-                    writer,
-                    tabs_and_spaces,
-                    motif_labels,
-                )?;
-            }
-        }
+        // TODO: make the "buff"s part of the object.
+        std::thread::scope(|scope| {
+            let hp1_handle = scope.spawn(|| {
+                let mut buff = Cursor::new(vec![0u8; 1 << 20]);
+                for pfc in hp1.iter().filter(|x| x.is_valid()) {
+                    format_feature_counts2(chrom_name, &mut buff, pfc).unwrap();
+                    let pos = buff.position() as usize;
+                    if pos >= 1 << 20 {
+                        self.hp1_writer.write(&buff.get_ref()[..pos]).unwrap();
+                        buff.set_position(0);
+                    }
+                }
+                let pos = buff.position() as usize;
+                self.hp1_writer.write(&buff.get_ref()[..pos]).unwrap();
+            });
+            let hp2_handle = scope.spawn(|| {
+                let mut buff = Cursor::new(vec![0u8; 1 << 20]);
+                for pfc in hp2.iter().filter(|x| x.is_valid()) {
+                    format_feature_counts2(chrom_name, &mut buff, pfc).unwrap();
+                    let pos = buff.position() as usize;
+                    if pos >= 1 << 20 {
+                        self.hp2_writer.write(&buff.get_ref()[..pos]).unwrap();
+                        buff.set_position(0);
+                    }
+                }
+                let pos = buff.position() as usize;
+                self.hp2_writer.write(&buff.get_ref()[..pos]).unwrap();
+            });
+            let combined_handle = scope.spawn(|| {
+                let mut buff = Cursor::new(vec![0u8; 1 << 20]);
+                for pfc in combined_counts.iter().filter(|x| x.is_valid()) {
+                    format_feature_counts2(&chrom_name, &mut buff, pfc)
+                        .unwrap();
+                    let pos = buff.position() as usize;
+                    if pos >= 1 << 20 {
+                        self.combined_writer
+                            .write(&buff.get_ref()[..pos])
+                            .unwrap();
+                        buff.set_position(0);
+                    }
+                }
+                let pos = buff.position() as usize;
+                self.combined_writer.write(&buff.get_ref()[..pos]).unwrap();
+            });
+            let _ = hp1_handle.join().unwrap();
+            let _ = hp2_handle.join().unwrap();
+            let _ = combined_handle.join().unwrap();
+        });
+        let _ = self.return_mem.send(item);
 
-        Ok(rows_written)
+        Ok(total_rows as u64)
     }
 }
+
+// pub struct PartitioningBedMethylWriter {
+//     prefix: Option<String>,
+//     out_dir: PathBuf,
+//     tabs_and_spaces: bool,
+//     router: FxHashMap<String, BufWriter<File>>,
+// }
+//
+// impl PartitioningBedMethylWriter {
+//     pub fn new(
+//         out_path: &String,
+//         only_tabs: bool,
+//         prefix: Option<&String>,
+//     ) -> anyhow::Result<Self> {
+//         let dir_path = Path::new(out_path);
+//         if !dir_path.is_dir() {
+//             info!("creating {out_path}");
+//             std::fs::create_dir_all(dir_path)?;
+//         }
+//         let out_dir = dir_path.to_path_buf();
+//         let prefix = prefix.cloned();
+//         let router = FxHashMap::default();
+//         Ok(Self { out_dir, prefix, router, tabs_and_spaces: !only_tabs })
+//     }
+//
+//     fn get_writer_for_key(&mut self, key_name: &str) -> &mut BufWriter<File>
+// {         self.router.entry(key_name.to_owned()).or_insert_with(|| {
+//             let filename = if let Some(prefix) = self.prefix.as_ref() {
+//                 format!("{prefix}_{key_name}.bed")
+//             } else {
+//                 format!("{key_name}.bed")
+//             };
+//             let fp = self.out_dir.join(filename);
+//             let fh = File::create(fp).unwrap();
+//
+//             BufWriter::new(fh)
+//         })
+//     }
+// }
+
+// const NOT_FOUND: &str = "not_found";
+// const UNGROUPED: &str = "ungrouped";

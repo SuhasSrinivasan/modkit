@@ -153,7 +153,7 @@ fn parse_raw_threshold(raw: &str) -> anyhow::Result<(DnaBase, f32)> {
     Ok((base, threshold_value))
 }
 
-fn parse_per_base_thresholds(
+pub(crate) fn parse_per_base_thresholds(
     raw_thresholds: &[String],
 ) -> anyhow::Result<(Option<f32>, HashMap<DnaBase, f32>)> {
     if raw_thresholds.is_empty() {
@@ -180,8 +180,8 @@ fn parse_per_base_thresholds(
         for raw_threshold in raw_thresholds {
             if raw_threshold.contains(':') {
                 let (dna_base, threshold) = parse_raw_threshold(raw_threshold)?;
-                info!(
-                    "using threshold {} for base {}",
+                debug!(
+                    "parsed user-specified threshold {} for base {}",
                     threshold,
                     dna_base.char()
                 );

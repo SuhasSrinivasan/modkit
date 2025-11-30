@@ -22,7 +22,7 @@ use crate::bedmethyl_util::BedMethylStream;
 use crate::command_utils::calculate_chunk_size;
 use crate::dmr::bedmethyl::BedMethylLine;
 use crate::interval_chunks::{
-    ChromCoordinates, ReferenceIntervalsFeeder, TotalLength,
+    ChromCoordinates, ReferenceIntervalBatchesFeeder, TotalLength,
 };
 use crate::mod_base_code::ModCodeRepr;
 use crate::tabix::{HtsTabixHandler, ParseBedLine};
@@ -287,7 +287,7 @@ impl EntryMergeBedMethyl {
             self.threads,
         );
 
-        let feeder = ReferenceIntervalsFeeder::new(
+        let feeder = ReferenceIntervalBatchesFeeder::new(
             reference_records,
             chunk_size,
             self.interval_size,

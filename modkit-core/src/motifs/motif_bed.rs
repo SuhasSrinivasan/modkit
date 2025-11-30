@@ -12,6 +12,7 @@ use regex::{Match, Regex};
 use rustc_hash::FxHashMap;
 
 use crate::fasta::HtsLibFastaRecords;
+use crate::mod_base_code::DnaBase;
 use crate::monoid::Moniod;
 use crate::position_filter::StrandedPositionFilter;
 use crate::util::{
@@ -109,12 +110,13 @@ impl OverlappingRegex {
     }
 }
 
-#[derive(Debug, new, Copy, Clone)]
+#[derive(Debug, new, Copy, Clone, PartialEq, Eq)]
 pub struct MotifInfo {
     pub forward_offset: usize,
     pub reverse_offset: usize,
     pub length: usize,
     pub is_palendrome: bool,
+    pub primary_base: DnaBase,
 }
 
 impl MotifInfo {
@@ -195,17 +197,18 @@ impl RegexMotif {
             .collect::<Result<Vec<RegexMotif>, anyhow::Error>>()
     }
 
-    pub fn parse_string(raw_motif: &str, offset: usize) -> AnyhowResult<Self> {
+    pub fn parse_string(
+        raw_motif: &str,
+        offset: usize,
+    ) -> anyhow::Result<Self> {
+        let raw_primary_base =
+            raw_motif.chars().nth(offset).ok_or_else(|| {
+                anyhow!("offset {offset} invalid for {raw_motif}")
+            })?;
+        let primary_base = DnaBase::parse(raw_primary_base)
+            .context(format!("motif modified base must be A,C,G, or T."))?;
+
         let length = raw_motif.len();
-        if length == 1 {
-            match raw_motif {
-                "A" | "C" | "G" | "T" => {}
-                _ => bail!(
-                    "degenerate bases are not supported as single base \
-                     motifs, must be 'A', 'C', 'G', or 'T'."
-                ),
-            };
-        };
         let motif = iupac_to_regex(raw_motif)?;
         let re = OverlappingRegex::new(&motif)?;
         let rc_motif = motif_rev_comp(&motif);
@@ -219,6 +222,7 @@ impl RegexMotif {
             rc_offset,
             length,
             re.as_str() == rc_re.as_str(),
+            primary_base,
         );
         Ok(Self::new(re, rc_re, motif_info, raw_motif.to_owned()))
     }
@@ -249,6 +253,12 @@ impl RegexMotif {
 
     pub(crate) fn find_hits(&self, seq: &str) -> Vec<(usize, Strand)> {
         find_motif_hits(seq, &self)
+    }
+}
+
+impl PartialEq for RegexMotif {
+    fn eq(&self, other: &Self) -> bool {
+        self.motif_info == other.motif_info && self.raw_motif == other.raw_motif
     }
 }
 
@@ -359,6 +369,13 @@ pub fn motif_bed(
     mask: bool,
 ) -> AnyhowResult<()> {
     let motif = iupac_to_regex(&motif_raw)?;
+    let primary_base = motif_raw
+        .chars()
+        .nth(offset)
+        .ok_or_else(|| {
+            anyhow!("motif {motif_raw} too short for offse {offset}")
+        })
+        .and_then(|c| DnaBase::parse(c).map_err(|e| anyhow!("{e}")))?;
     let re = OverlappingRegex::new(&motif)
         .context("failed to make forward regex pattern")?;
     let rc_motif = motif_rev_comp(&motif);
@@ -374,6 +391,7 @@ pub fn motif_bed(
         rc_offset,
         motif_raw.len(),
         re.as_str() == rc_re.as_str(),
+        primary_base,
     );
     let regex_motif =
         RegexMotif::new(re, rc_re, motif_info, motif_raw.to_owned());

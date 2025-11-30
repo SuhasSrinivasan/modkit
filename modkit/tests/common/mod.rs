@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
@@ -16,6 +16,7 @@ pub fn run_modkit(args: &[&str]) -> AnyhowResult<Output> {
     let exe = Path::new(env!("CARGO_BIN_EXE_modkit"));
     assert!(exe.exists());
 
+    // eprintln!("running modkit with args {:?}", args.join(" "));
     let output = std::process::Command::new(exe)
         .args(args)
         .stdout(std::process::Stdio::null())
