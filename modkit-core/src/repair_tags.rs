@@ -47,10 +47,6 @@ pub struct RepairTags {
 impl RepairTags {
     pub fn run(&self) -> anyhow::Result<()> {
         let _handle = init_logging(self.log_filepath.as_ref());
-        warn!(
-            "in the next version of modkit this command will be `modkit \
-             modbam repair`"
-        );
 
         let reader_threads = {
             let half = self.threads / 2;
