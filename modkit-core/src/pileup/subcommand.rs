@@ -1229,6 +1229,7 @@ impl ModBamPileup {
                             motif_infos.clone(),
                             threshold_caller.clone(),
                             pileup_options.clone(),
+                            self.combine_strands,
                         )
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;

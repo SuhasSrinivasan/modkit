@@ -456,6 +456,7 @@ pub struct GenericPileupWorker {
     motif_bases: Vec<MotifInfo>,
     caller: MultipleThresholdModCaller,
     pileup_numeric_options: PileupNumericOptions,
+    combine_strands: bool,
 }
 
 impl GenericPileupWorker {
@@ -465,6 +466,7 @@ impl GenericPileupWorker {
         motif_bases: Vec<MotifInfo>,
         caller: MultipleThresholdModCaller,
         pileup_numeric_options: PileupNumericOptions,
+        combine_strands: bool,
     ) -> anyhow::Result<Self> {
         let mut reader = bam::IndexedReader::from_path(in_bam_fp)?;
         if reader_is_cram(&reader) {
@@ -485,7 +487,13 @@ impl GenericPileupWorker {
             }
         };
 
-        Ok(Self { reader, motif_bases, caller, pileup_numeric_options })
+        Ok(Self {
+            reader,
+            motif_bases,
+            caller,
+            pileup_numeric_options,
+            combine_strands,
+        })
     }
 }
 impl PileupWorker for GenericPileupWorker {
@@ -525,9 +533,9 @@ impl PileupWorker for GenericPileupWorker {
             FxHashMap::default();
         let mut add_to_tally = |position_strand: PositionStrand,
                                 call: Call,
-                                ref_base: Option<DnaBase>,
+                                motif_info: Option<&MotifInfo>,
                                 motif_idxs: u8| {
-            let call = match ref_base {
+            let call = match motif_info.map(|x| x.primary_base) {
                 Some(x) if call.matches_dna_base(&x) => call,
                 Some(_x) => match call {
                     Call::Delete => call,
@@ -540,6 +548,25 @@ impl PileupWorker for GenericPileupWorker {
                 },
                 None => call,
             };
+            let position_strand = match motif_info {
+                Some(motif_info) if self.combine_strands => {
+                    let (rpos, strand) = position_strand;
+                    if strand == Strand::Negative {
+                        (
+                            rpos.saturating_sub(
+                                (motif_info.reverse_offset
+                                    - motif_info.forward_offset)
+                                    as u32,
+                            ),
+                            Strand::Positive,
+                        )
+                    } else {
+                        position_strand
+                    }
+                }
+                _ => position_strand,
+            };
+
             chrom_features
                 .entry(position_strand)
                 .or_insert_with(Tally2::default)
@@ -625,13 +652,13 @@ impl PileupWorker for GenericPileupWorker {
                                 (
                                     qpos,
                                     rpos,
-                                    Some(self.motif_bases[idx].primary_base),
+                                    Some(&self.motif_bases[idx]),
                                     indices_to_byte(bs),
                                 )
                             })
                         }
                         FocusPositions2::AllPositions => {
-                            Some((qpos, rpos, Option::<DnaBase>::None, 0u8))
+                            Some((qpos, rpos, Option::<&MotifInfo>::None, 0u8))
                         }
                     }
                 });
@@ -875,7 +902,12 @@ impl PileupWorker for GenericPileupWorker {
                 o @ _ => o,
             })
             .flat_map(|((ref_pos, strand), tally)| {
-                tally.into_counts(start_pos, ref_pos, combine_mods, strand)
+                tally.into_counts(
+                    start_pos,
+                    ref_pos,
+                    combine_mods,
+                    if self.combine_strands { '.' } else { strand.to_char() },
+                )
             })
             .filter(|x| x.is_valid())
             .collect::<Vec<PileupFeatureCounts2>>();
@@ -2114,7 +2146,7 @@ impl Tally2 {
         start_pos: u32,
         relative_position: u32,
         combine_mods: bool,
-        strand: Strand,
+        strand: char,
     ) -> Vec<PileupFeatureCounts2> {
         self.modcall_counts
             .into_iter()
@@ -2175,7 +2207,7 @@ impl Tally2 {
                         ModifiedBase::Modified(mod_code) => {
                             Some(PileupFeatureCounts2::new(
                                 relative_position.saturating_add(start_pos),
-                                strand.to_char(),
+                                strand,
                                 filtered_coverage,
                                 mod_code,
                                 n_canonical,
