@@ -253,7 +253,8 @@ fn test_pileup_cpg_motif_filtering() {
 
 #[test]
 fn test_pileup_cpg_motif_filtering_compressed_ref() {
-    let temp_file = std::env::temp_dir().join("test_cpg_motif_filtering.bed");
+    let temp_file = std::env::temp_dir()
+        .join("test_pileup_cpg_motif_filtering_compressed_ref.bed");
     run_modkit(&[
         "pileup",
         "../tests/resources/bc_anchored_10_reads.sorted.bam",
