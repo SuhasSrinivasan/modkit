@@ -36,7 +36,7 @@ impl PileupFeatureCounts2 {
     }
 
     pub(super) fn add(&mut self, other: &Self) {
-        assert_eq!(self.position, other.position);
+        assert_eq!(self.position, other.position, "{:?} =/= {:?}", self, other);
         assert_eq!(self.raw_strand, other.raw_strand);
         assert_eq!(self.mod_code, other.mod_code);
         self.filtered_coverage =

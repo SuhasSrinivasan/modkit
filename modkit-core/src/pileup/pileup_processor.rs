@@ -408,6 +408,8 @@ impl<
             let mut combined = position_feature_counts;
             let mut hp1 = combined.split_off(hp_width);
             let hp2 = hp1.split_off(hp_width);
+            debug_assert_eq!(combined.len(), hp1.len());
+            debug_assert_eq!(hp2.len(), hp1.len());
             let combined_counts = combined
                 .into_iter()
                 .zip(hp2.iter())
@@ -1254,8 +1256,7 @@ impl ACountsMatrix<DnaAllContext, 2> for CountsMatrix {
     fn stride(&self, dna_mod_option: DnaModOption) -> usize {
         match dna_mod_option {
             DnaModOption::Other(_) => 3,
-            DnaModOption::Combine => 2,
-            DnaModOption::Single => 1,
+            DnaModOption::Combine | DnaModOption::Single => 2,
         }
     }
 
@@ -1623,8 +1624,7 @@ impl ACountsMatrix<DnaCpGCombineStrands, 1> for CountsMatrix {
     fn stride(&self, dna_mod_option: DnaModOption) -> usize {
         match dna_mod_option {
             DnaModOption::Other(_) => 3,
-            DnaModOption::Combine => 2,
-            DnaModOption::Single => 1,
+            DnaModOption::Combine | DnaModOption::Single => 2,
         }
     }
 
