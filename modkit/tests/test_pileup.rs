@@ -955,3 +955,41 @@ fn test_pileup_with_header() {
         "../tests/resources/pileup_with_header.bed",
     );
 }
+
+#[test]
+fn test_pilep_phased() {
+    let test_tmp_dir = std::env::temp_dir();
+    let phased_output_dir = test_tmp_dir.join("test_pilep_phased_pileup");
+    let normal_output_pileup =
+        test_tmp_dir.join("test_pilep_regular_pileup.bedmethyl");
+    let args = [
+        "pileup",
+        "../tests/resources/test.sorted.phased.bam",
+        phased_output_dir.to_str().unwrap(),
+        "--modified-bases",
+        "5mC",
+        "--phased",
+        "--ref",
+        "../tests/resources/genome_for_phased_test.fasta",
+        "--no-filtering",
+    ];
+    run_modkit(&args).unwrap();
+    let args = [
+        "pileup",
+        "../tests/resources/test.sorted.phased.bam",
+        normal_output_pileup.to_str().unwrap(),
+        "--modified-bases",
+        "5mC",
+        "--ref",
+        "../tests/resources/genome_for_phased_test.fasta",
+        "--no-filtering",
+    ];
+    run_modkit(&args).unwrap();
+    let combined_phased = phased_output_dir.join("combined.bedmethyl");
+    assert!(combined_phased.exists() && combined_phased.is_file());
+    assert!(normal_output_pileup.exists() && normal_output_pileup.is_file());
+    check_against_expected_text_file(
+        combined_phased.to_str().unwrap(),
+        normal_output_pileup.to_str().unwrap(),
+    );
+}
