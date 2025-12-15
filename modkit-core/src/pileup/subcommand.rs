@@ -516,7 +516,7 @@ impl ModBamPileup {
                     .map(|(b, x)| format!("{b}:{x}"))
                     .join(",");
                 info!(
-                    "parsed {} base modification(s). Base modifictions other \
+                    "parsed {} base modification(s). Base modifications other \
                      than '{modified_bases_list}' will be counted as \
                      'N_other'.",
                     modified_bases.len()
