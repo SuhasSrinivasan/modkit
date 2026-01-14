@@ -27,6 +27,7 @@ use crate::mod_bam::CollapseMethod;
 use crate::mod_base_code::{
     DnaBase, ModCodeRepr, ANY_ADENINE, ANY_CYTOSINE, ANY_GUANINE, ANY_THYMINE,
     LONG_NAME_TO_CODE, METHYL_CYTOSINE, MOD_CODE_TO_DNA_BASE,
+    SIX_METHYL_ADENINE,
 };
 use crate::motifs::motif_bed::{MotifInfo, RegexMotif};
 use crate::pileup::duplex::{process_region_duplex_batch, DuplexModBasePileup};
@@ -425,6 +426,7 @@ impl ModBamPileup {
         if modified_bases.len() > 3 {
             return false;
         }
+
         let a_and_c = hash_set! { DnaBase::A, DnaBase::C };
         let primary_bases =
             modified_bases.iter().map(|x| x.0).collect::<HashSet<DnaBase>>();
@@ -440,8 +442,23 @@ impl ModBamPileup {
             .group_by(|(b, _)| *b)
             .into_iter()
             .all(|(base, it)| match base {
-                DnaBase::A => it.count() == 1,
-                DnaBase::C => it.count() <= 2,
+                DnaBase::A => {
+                    let a_mods =
+                        it.map(|(_a, y)| *y).collect::<Vec<ModCodeRepr>>();
+                    a_mods.len() == 1 && a_mods.contains(&SIX_METHYL_ADENINE)
+                }
+                DnaBase::C => {
+                    let mut has_methyl_c = false;
+                    let mut count = 0usize;
+                    for (prim_base, code) in it {
+                        debug_assert_eq!(*prim_base, DnaBase::C);
+                        count = count.saturating_add(1);
+                        if *code == METHYL_CYTOSINE {
+                            has_methyl_c = true;
+                        }
+                    }
+                    count <= 2usize && has_methyl_c
+                }
                 DnaBase::G => unreachable!(),
                 DnaBase::T => unreachable!(),
             });
