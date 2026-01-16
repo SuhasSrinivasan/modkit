@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
 use anyhow::{anyhow, bail, Context};
 use clap::Args;
@@ -25,11 +24,11 @@ use crate::interval_chunks::{
 };
 use crate::mod_bam::CollapseMethod;
 use crate::mod_base_code::{
-    DnaBase, ModCodeRepr, ANY_ADENINE, ANY_CYTOSINE, ANY_GUANINE, ANY_THYMINE,
-    LONG_NAME_TO_CODE, METHYL_CYTOSINE, MOD_CODE_TO_DNA_BASE,
-    SIX_METHYL_ADENINE,
+    DnaBase, ModCodeRepr, ModifiedBasesOptions, ANY_ADENINE, ANY_CYTOSINE,
+    ANY_GUANINE, ANY_THYMINE, METHYL_CYTOSINE, SIX_METHYL_ADENINE,
 };
 use crate::motifs::motif_bed::{MotifInfo, RegexMotif};
+use crate::pileup::bedrmod::BedRModArgs;
 use crate::pileup::duplex::{process_region_duplex_batch, DuplexModBasePileup};
 use crate::pileup::pileup_processor::{
     CountsMatrix, DnaAllContext, DnaCpGCombineStrands, DnaCytosineCombine,
@@ -326,22 +325,21 @@ pub struct ModBamPileup {
     /// space-delimited instead of tab-delimited. This option can be useful
     /// for some browsers and parsers that don't expect the extra columns
     /// of the bedMethyl format.
-    #[clap(help_heading = "Output Options")]
-    #[arg(
-        long = "mixed-delim",
-        alias = "mixed-delimiters",
-        default_value_t = false,
-        hide_short_help = true
-    )]
-    mixed_delimiters: bool,
+    // #[clap(help_heading = "Output Options")]
+    // #[arg(
+    //     long = "mixed-delim",
+    //     alias = "mixed-delimiters",
+    //     default_value_t = false,
+    //     hide_short_help = true
+    // )]
+    // mixed_delimiters: bool,
     /// Output a header with the bedMethyl
     #[clap(help_heading = "Output Options")]
     #[arg(
         long = "header",
         alias = "with-header",
         alias = "include_header",
-        conflicts_with_all = ["mixed_delimiters"],
-        default_value_t = false,
+        default_value_t = false
     )]
     with_header: bool,
     /// Prefix to prepend on phased output file names. Without this option
@@ -358,6 +356,8 @@ pub struct ModBamPileup {
     #[clap(help_heading = "Output Options")]
     #[arg(long, default_value_t = false)]
     phased: bool,
+    #[clap(flatten)]
+    bedrmodargs: BedRModArgs,
 }
 
 impl ModBamPileup {
@@ -433,6 +433,9 @@ impl ModBamPileup {
         let is_subset_of_a_and_c = primary_bases.is_subset(&a_and_c);
 
         if !is_subset_of_a_and_c {
+            return false;
+        }
+        if !primary_bases.contains(&DnaBase::C) {
             return false;
         }
 
@@ -703,11 +706,6 @@ impl ModBamPileup {
                 parse_per_mod_thresholds(raw_per_mod_thresholds)
             })
             .transpose()?;
-        // let partition_tags = self
-        //     .partition_tag
-        //     .as_ref()
-        //     .map(|raw_tags| parse_partition_tags(raw_tags))
-        //     .transpose()?;
         let reference_records = get_targets(&header, region.as_ref());
         if self.include_bed.is_some() {
             if !(self.modified_bases.is_some() || self.motif.is_some()) {
@@ -845,6 +843,9 @@ impl ModBamPileup {
                         debug!("using multiple-motif stdout writer");
                         Box::new(MultipleMotifBedmethylWriter::new_stdout(
                             self.with_header,
+                            &self.bedrmodargs,
+                            &header,
+                            self.modified_bases.as_ref(),
                             empties_tx.clone(),
                             master_progress.clone(),
                         )?)
@@ -852,6 +853,9 @@ impl ModBamPileup {
                         debug!("using standard stdout writer");
                         Box::new(BedMethylWriter2::new_stdout(
                             self.with_header,
+                            &self.bedrmodargs,
+                            &header,
+                            self.modified_bases.as_ref(),
                             master_progress.clone(),
                             empties_tx.clone(),
                         )?)
@@ -864,6 +868,9 @@ impl ModBamPileup {
                         Box::new(MultipleMotifBedmethylWriter::new_file(
                             &Path::new(&out_fp_str).to_path_buf(),
                             self.with_header,
+                            &self.bedrmodargs,
+                            &header,
+                            self.modified_bases.as_ref(),
                             master_progress.clone(),
                             empties_tx.clone(),
                         )?)
@@ -877,6 +884,9 @@ impl ModBamPileup {
                             Box::new(BedMethylWriter2::new_bgzf(
                                 &Path::new(&out_fp_str).to_path_buf(),
                                 self.with_header,
+                                &self.bedrmodargs,
+                                &header,
+                                self.modified_bases.as_ref(),
                                 master_progress.clone(),
                                 empties_tx.clone(),
                                 self.bgzf_threads,
@@ -886,6 +896,9 @@ impl ModBamPileup {
                             Box::new(BedMethylWriter2::new(
                                 &Path::new(&out_fp_str).to_path_buf(),
                                 self.with_header,
+                                &self.bedrmodargs,
+                                &header,
+                                self.modified_bases.as_ref(),
                                 master_progress.clone(),
                                 empties_tx.clone(),
                             )?)
@@ -1399,43 +1412,6 @@ impl ModBamPileup {
         aggregator.join().expect("aggregator theread paniced");
 
         Ok(())
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct ModifiedBasesOptions {
-    mod_code: ModCodeRepr,
-    primary_base: DnaBase,
-}
-
-impl FromStr for ModifiedBasesOptions {
-    type Err = anyhow::Error;
-
-    fn from_str(raw: &str) -> Result<Self, Self::Err> {
-        if raw.contains(":") {
-            let parts = raw.split(":").collect::<Vec<&str>>();
-            if parts.len() != 2 {
-                bail!(
-                    "invalid mod specification {raw}, should be \
-                     <primary_base>:<mod_code>, e.g. C:m"
-                )
-            }
-            let primary_base = parts[0]
-                .parse::<char>()
-                .map_err(|e| anyhow!("invalid DNA base {}, {e}", parts[0]))
-                .and_then(|b| DnaBase::parse(b).map_err(|e| e.into()))?;
-            let mod_code = ModCodeRepr::parse(parts[1])?;
-
-            Ok(Self { mod_code, primary_base })
-        } else {
-            let (mod_code, primary_base) = LONG_NAME_TO_CODE
-                .get(raw)
-                .and_then(|mod_code| {
-                    MOD_CODE_TO_DNA_BASE.get(mod_code).map(|b| (*mod_code, *b))
-                })
-                .ok_or(anyhow!("unknown long-name base modification {raw}"))?;
-            Ok(Self { mod_code, primary_base })
-        }
     }
 }
 

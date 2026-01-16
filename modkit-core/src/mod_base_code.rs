@@ -1,10 +1,11 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 
 use crate::errs::{MkError, MkResult};
 use crate::motifs::iupac::nt_bytes;
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use clap::ValueEnum;
 use common_macros::hash_map;
 use derive_new::new;
@@ -388,3 +389,64 @@ pub static LONG_NAME_TO_CODE: std::sync::LazyLock<
         LN_ANY_GUANINE => ANY_GUANINE,
     }
 });
+
+lazy_static! {
+    pub(crate) static ref RNA_CODES_TO_MODOMICS_NAMES: FxHashMap<ModifiedBasesOptions, &'static str> = {
+        let hm = hash_map! {
+            // LN_TWO_OME_ADENINE => "Am",
+            ModifiedBasesOptions::new(TWO_OME_ADENINE, DnaBase::A) => "Am",
+            // LN_TWO_OME_CYTOSINE => "Cm",
+            ModifiedBasesOptions::new(TWO_OME_CYTOSINE, DnaBase::C) => "Cm",
+            // LN_TWO_OME_GUANINE => "Gm",
+            ModifiedBasesOptions::new(TWO_OME_GUANINE, DnaBase::G) => "Gm",
+            // LN_TWO_OME_URACIL => "Um",
+            ModifiedBasesOptions::new(TWO_OME_URACIL, DnaBase::T) => "Um",
+            // LN_INOSINE => "I",
+            ModifiedBasesOptions::new(INOSINE, DnaBase::A) => "I",
+            // LN_RNA_FIVE_METHYL_CYTOSINE => "m5C",
+            ModifiedBasesOptions::new(METHYL_CYTOSINE, DnaBase::C) => "m5C",
+            // LN_RNA_SIX_METHYL_ADENINE => "m6A",
+            ModifiedBasesOptions::new(SIX_METHYL_ADENINE, DnaBase::A) => "m6A",
+            // LN_PSEUDOURIDINE => "Y",
+            ModifiedBasesOptions::new(PSEUDOURIDINE, DnaBase::T) => "Y",
+        };
+        hm.into_iter().collect()
+    };
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, new)]
+pub(crate) struct ModifiedBasesOptions {
+    pub mod_code: ModCodeRepr,
+    pub primary_base: DnaBase,
+}
+
+impl FromStr for ModifiedBasesOptions {
+    type Err = anyhow::Error;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        if raw.contains(":") {
+            let parts = raw.split(":").collect::<Vec<&str>>();
+            if parts.len() != 2 {
+                bail!(
+                    "invalid mod specification {raw}, should be \
+                     <primary_base>:<mod_code>, e.g. C:m"
+                )
+            }
+            let primary_base = parts[0]
+                .parse::<char>()
+                .map_err(|e| anyhow!("invalid DNA base {}, {e}", parts[0]))
+                .and_then(|b| DnaBase::parse(b).map_err(|e| e.into()))?;
+            let mod_code = ModCodeRepr::parse(parts[1])?;
+
+            Ok(Self { mod_code, primary_base })
+        } else {
+            let (mod_code, primary_base) = LONG_NAME_TO_CODE
+                .get(raw)
+                .and_then(|mod_code| {
+                    MOD_CODE_TO_DNA_BASE.get(mod_code).map(|b| (*mod_code, *b))
+                })
+                .ok_or(anyhow!("unknown long-name base modification {raw}"))?;
+            Ok(Self { mod_code, primary_base })
+        }
+    }
+}

@@ -10,6 +10,7 @@ use crate::mod_base_code::{DnaBase, ModCodeRepr};
 use crate::util::StrandRule;
 
 mod base_mods_adapter;
+pub(crate) mod bedrmod;
 pub(crate) mod duplex;
 pub(super) mod pileup_processor;
 pub mod subcommand;

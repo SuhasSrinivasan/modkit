@@ -26,10 +26,13 @@ use log::{debug, info, warn};
 use prettytable::format::FormatBuilder;
 use prettytable::{row, Table};
 use random_color::RandomColor;
+use rust_htslib::bam::HeaderView;
 
 use crate::mod_base_code::{
-    BaseState, DnaBase, ModCodeRepr, ProbHistogram, DNA_BASE_COLORS, MOD_COLORS,
+    BaseState, DnaBase, ModCodeRepr, ModifiedBasesOptions, ProbHistogram,
+    DNA_BASE_COLORS, MOD_COLORS,
 };
+use crate::pileup::bedrmod::BedRModArgs;
 use crate::pileup::duplex::DuplexModBasePileup;
 use crate::pileup::{ModBasePileup2, PileupFeatureCounts2};
 use crate::summarize::ModSummary;
@@ -57,11 +60,15 @@ pub struct BedMethylWriter2<T: Write> {
     buff: Cursor<Vec<u8>>,
     inner: RecordingWriter<T>,
     return_mem: Sender<ModBasePileup2>,
+    bedrmod_spec: bool,
 }
 
 impl BedMethylWriter2<BufWriter<std::io::Stdout>> {
     pub(crate) fn new_stdout(
         with_header: bool,
+        bed_rmod_args: &BedRModArgs,
+        header: &HeaderView,
+        modified_bases_options: Option<&Vec<ModifiedBasesOptions>>,
         multi_progress: MultiProgress,
         return_mem: Sender<ModBasePileup2>,
     ) -> anyhow::Result<Self> {
@@ -71,9 +78,23 @@ impl BedMethylWriter2<BufWriter<std::io::Stdout>> {
         let mut writer = RecordingWriter::new_stdout(write_pb);
         if with_header {
             writer.write(bedmethyl_header().as_bytes())?;
+        } else if bed_rmod_args.enabled() {
+            let modified_bases_options =
+                modified_bases_options.ok_or_else(|| {
+                    anyhow!("--modified-bases required for --bedrmod")
+                })?;
+            let bedrmod_header =
+                bed_rmod_args.header(&header, modified_bases_options)?;
+            writer.write(bedrmod_header.as_bytes())?;
         }
+
         let buff = Cursor::new(vec![0u8; 1 << 20]);
-        Ok(Self { buff, inner: writer, return_mem })
+        Ok(Self {
+            buff,
+            inner: writer,
+            return_mem,
+            bedrmod_spec: bed_rmod_args.enabled(),
+        })
     }
 }
 
@@ -81,6 +102,9 @@ impl BedMethylWriter2<ParCompress<Bgzf>> {
     pub(crate) fn new_bgzf(
         out_path: &PathBuf,
         with_header: bool,
+        bed_rmod_args: &BedRModArgs,
+        header: &HeaderView,
+        modified_bases_options: Option<&Vec<ModifiedBasesOptions>>,
         multi_progress: MultiProgress,
         return_mem: Sender<ModBasePileup2>,
         bgzf_threads: usize,
@@ -97,9 +121,22 @@ impl BedMethylWriter2<ParCompress<Bgzf>> {
         let mut writer = RecordingWriter::new_bgzf(fh, bgzf_threads, write_pb);
         if with_header {
             writer.write(bedmethyl_header().as_bytes())?;
+        } else if bed_rmod_args.enabled() {
+            let modified_bases_options =
+                modified_bases_options.ok_or_else(|| {
+                    anyhow!("--modified-bases required for --bedrmod")
+                })?;
+            let bedrmod_header =
+                bed_rmod_args.header(&header, modified_bases_options)?;
+            writer.write(bedrmod_header.as_bytes())?;
         }
         let buff = Cursor::new(vec![0u8; 1 << 20]);
-        Ok(Self { buff, inner: writer, return_mem })
+        Ok(Self {
+            buff,
+            inner: writer,
+            return_mem,
+            bedrmod_spec: bed_rmod_args.enabled(),
+        })
     }
 }
 
@@ -107,6 +144,9 @@ impl BedMethylWriter2<BufWriter<File>> {
     pub(crate) fn new(
         out_path: &PathBuf,
         with_header: bool,
+        bed_rmod_args: &BedRModArgs,
+        header: &HeaderView,
+        modified_bases_options: Option<&Vec<ModifiedBasesOptions>>,
         multi_progress: MultiProgress,
         return_mem: Sender<ModBasePileup2>,
     ) -> anyhow::Result<Self> {
@@ -122,9 +162,23 @@ impl BedMethylWriter2<BufWriter<File>> {
         let mut writer = RecordingWriter::new_file(fh, write_pb);
         if with_header {
             writer.write(bedmethyl_header().as_bytes())?;
+        } else if bed_rmod_args.enabled() {
+            let modified_bases_options =
+                modified_bases_options.ok_or_else(|| {
+                    anyhow!("--modified-bases required for --bedrmod")
+                })?;
+            let bedrmod_header =
+                bed_rmod_args.header(&header, modified_bases_options)?;
+            writer.write(bedrmod_header.as_bytes())?;
         }
+
         let buff = Cursor::new(vec![0u8; 1 << 20]);
-        Ok(Self { buff, inner: writer, return_mem })
+        Ok(Self {
+            buff,
+            inner: writer,
+            return_mem,
+            bedrmod_spec: bed_rmod_args.enabled(),
+        })
     }
 }
 
@@ -138,7 +192,13 @@ impl<T: Write> PileupWriter<ModBasePileup2> for BedMethylWriter2<T> {
         let n_rows = item.position_feature_counts.len() as u64;
         let chrom_name = &item.chrom_name;
         for pfc in item.position_feature_counts.iter() {
-            format_feature_counts2(chrom_name, &mut self.buff, pfc).unwrap();
+            format_feature_counts2(
+                chrom_name,
+                &mut self.buff,
+                pfc,
+                self.bedrmod_spec,
+            )
+            .unwrap();
             let pos = self.buff.position() as usize;
             if pos >= 1 << 20 {
                 self.inner.write(&self.buff.get_ref()[..pos]).unwrap();
@@ -153,6 +213,14 @@ impl<T: Write> PileupWriter<ModBasePileup2> for BedMethylWriter2<T> {
 }
 
 pub fn bedmethyl_header() -> String {
+    bedmethyl_header_op("valid_coverage")
+}
+
+pub fn bedrmod_bedmethyl_header() -> String {
+    bedmethyl_header_op("coverage")
+}
+
+fn bedmethyl_header_op(coverage_field: &'static str) -> String {
     let fields = [
         "chrom",
         "chromStart",
@@ -163,7 +231,7 @@ pub fn bedmethyl_header() -> String {
         "thickStart",
         "thickEnd",
         "color",
-        "valid_coverage",
+        coverage_field,
         "percent_modified",
         "count_modified",
         "count_canonical",
@@ -328,24 +396,37 @@ impl<T: Write> PileupWriter<DuplexModBasePileup> for BedMethylWriter<T> {
 pub struct MultipleMotifBedmethylWriter<T: Write> {
     writer: RecordingWriter<T>,
     return_mem: Sender<ModBasePileup2>,
+    bedrmod_spec: bool,
 }
 
 impl MultipleMotifBedmethylWriter<BufWriter<std::io::Stdout>> {
     pub(crate) fn new_stdout(
         with_header: bool,
+        bed_rmod_args: &BedRModArgs,
+        header: &HeaderView,
+        modified_bases_options: Option<&Vec<ModifiedBasesOptions>>,
         return_mem: Sender<ModBasePileup2>,
         multi_progress: MultiProgress,
     ) -> anyhow::Result<Self> {
         let mut writer = BufWriter::new(stdout());
         if with_header {
             writer.write(bedmethyl_header().as_bytes())?;
-        };
+        } else if bed_rmod_args.enabled() {
+            let modified_bases_options =
+                modified_bases_options.ok_or_else(|| {
+                    anyhow!("--modified-bases required for --bedrmod")
+                })?;
+            let bedrmod_header =
+                bed_rmod_args.header(&header, modified_bases_options)?;
+            writer.write(bedrmod_header.as_bytes())?;
+        }
+
         let write_pb = multi_progress.add(get_ticker_with_rate());
         write_pb.set_message(format!("B written to stdout"));
         write_pb.set_position(0);
         let writer = RecordingWriter { inner: writer, pb: write_pb };
 
-        Ok(Self { writer, return_mem })
+        Ok(Self { writer, return_mem, bedrmod_spec: bed_rmod_args.enabled() })
     }
 }
 
@@ -353,6 +434,9 @@ impl MultipleMotifBedmethylWriter<BufWriter<File>> {
     pub(crate) fn new_file(
         out_path: &PathBuf,
         with_header: bool,
+        bed_rmod_args: &BedRModArgs,
+        header: &HeaderView,
+        modified_bases_options: Option<&Vec<ModifiedBasesOptions>>,
         multi_progress: MultiProgress,
         return_mem: Sender<ModBasePileup2>,
     ) -> anyhow::Result<Self> {
@@ -369,9 +453,17 @@ impl MultipleMotifBedmethylWriter<BufWriter<File>> {
         let mut writer = RecordingWriter::new_file(fh, write_pb);
         if with_header {
             writer.write(bedmethyl_header().as_bytes())?;
+        } else if bed_rmod_args.enabled() {
+            let modified_bases_options =
+                modified_bases_options.ok_or_else(|| {
+                    anyhow!("--modified-bases required for --bedrmod")
+                })?;
+            let bedrmod_header =
+                bed_rmod_args.header(&header, modified_bases_options)?;
+            writer.write(bedrmod_header.as_bytes())?;
         }
 
-        Ok(Self { writer, return_mem })
+        Ok(Self { writer, return_mem, bedrmod_spec: bed_rmod_args.enabled() })
     }
 }
 
@@ -405,7 +497,12 @@ impl<T: Write> PileupWriter<ModBasePileup2>
                 write!(&mut buff, "{}{TAB}", feature_count.raw_strand)?;
                 write!(&mut buff, "{pos}{TAB}{pp1}{TAB}")?;
                 write!(&mut buff, "255,0,0{TAB}")?;
-                write!(&mut buff, "{}{TAB}", feature_count.filtered_coverage)?;
+                let cov_val = if self.bedrmod_spec {
+                    feature_count.filtered_coverage + feature_count.n_filtered
+                } else {
+                    feature_count.filtered_coverage
+                };
+                write!(&mut buff, "{}{TAB}", cov_val)?;
                 write!(&mut buff, "{:.2}{TAB}", fraction_modified * 100f32)?;
                 write!(&mut buff, "{}{TAB}", feature_count.n_modified)?;
                 write!(&mut buff, "{}{TAB}", feature_count.n_canonical)?;
@@ -1051,6 +1148,7 @@ fn format_feature_counts2(
     chrom_name: &String,
     buff: &mut Cursor<Vec<u8>>,
     feature_count: &PileupFeatureCounts2,
+    bedrmod_spec: bool,
 ) -> anyhow::Result<()> {
     let pos = feature_count.position;
     let pp1 = pos + 1;
@@ -1063,7 +1161,12 @@ fn format_feature_counts2(
     write!(buff, "{}{TAB}", feature_count.raw_strand)?;
     write!(buff, "{pos}{TAB}{pp1}{TAB}")?;
     write!(buff, "255,0,0{TAB}")?;
-    write!(buff, "{}{TAB}", feature_count.filtered_coverage)?;
+    let cov_val = if bedrmod_spec {
+        feature_count.filtered_coverage + feature_count.n_filtered
+    } else {
+        feature_count.filtered_coverage
+    };
+    write!(buff, "{}{TAB}", cov_val)?;
     write!(buff, "{:.2}{TAB}", fraction_modified * 100f32)?;
     write!(buff, "{}{TAB}", feature_count.n_modified)?;
     write!(buff, "{}{TAB}", feature_count.n_canonical)?;
@@ -1259,7 +1362,8 @@ where
             let hp1_handle = scope.spawn(|| {
                 let mut buff = Cursor::new(vec![0u8; 1 << 20]);
                 for pfc in hp1.iter().filter(|x| x.is_valid()) {
-                    format_feature_counts2(chrom_name, &mut buff, pfc).unwrap();
+                    format_feature_counts2(chrom_name, &mut buff, pfc, false)
+                        .unwrap();
                     let pos = buff.position() as usize;
                     if pos >= 1 << 20 {
                         self.hp1_writer.write(&buff.get_ref()[..pos]).unwrap();
@@ -1272,7 +1376,8 @@ where
             let hp2_handle = scope.spawn(|| {
                 let mut buff = Cursor::new(vec![0u8; 1 << 20]);
                 for pfc in hp2.iter().filter(|x| x.is_valid()) {
-                    format_feature_counts2(chrom_name, &mut buff, pfc).unwrap();
+                    format_feature_counts2(chrom_name, &mut buff, pfc, false)
+                        .unwrap();
                     let pos = buff.position() as usize;
                     if pos >= 1 << 20 {
                         self.hp2_writer.write(&buff.get_ref()[..pos]).unwrap();
@@ -1285,7 +1390,7 @@ where
             let combined_handle = scope.spawn(|| {
                 let mut buff = Cursor::new(vec![0u8; 1 << 20]);
                 for pfc in combined_counts.iter().filter(|x| x.is_valid()) {
-                    format_feature_counts2(&chrom_name, &mut buff, pfc)
+                    format_feature_counts2(&chrom_name, &mut buff, pfc, false)
                         .unwrap();
                     let pos = buff.position() as usize;
                     if pos >= 1 << 20 {
@@ -1307,45 +1412,3 @@ where
         Ok(total_rows as u64)
     }
 }
-
-// pub struct PartitioningBedMethylWriter {
-//     prefix: Option<String>,
-//     out_dir: PathBuf,
-//     tabs_and_spaces: bool,
-//     router: FxHashMap<String, BufWriter<File>>,
-// }
-//
-// impl PartitioningBedMethylWriter {
-//     pub fn new(
-//         out_path: &String,
-//         only_tabs: bool,
-//         prefix: Option<&String>,
-//     ) -> anyhow::Result<Self> {
-//         let dir_path = Path::new(out_path);
-//         if !dir_path.is_dir() {
-//             info!("creating {out_path}");
-//             std::fs::create_dir_all(dir_path)?;
-//         }
-//         let out_dir = dir_path.to_path_buf();
-//         let prefix = prefix.cloned();
-//         let router = FxHashMap::default();
-//         Ok(Self { out_dir, prefix, router, tabs_and_spaces: !only_tabs })
-//     }
-//
-//     fn get_writer_for_key(&mut self, key_name: &str) -> &mut BufWriter<File>
-// {         self.router.entry(key_name.to_owned()).or_insert_with(|| {
-//             let filename = if let Some(prefix) = self.prefix.as_ref() {
-//                 format!("{prefix}_{key_name}.bed")
-//             } else {
-//                 format!("{key_name}.bed")
-//             };
-//             let fp = self.out_dir.join(filename);
-//             let fh = File::create(fp).unwrap();
-//
-//             BufWriter::new(fh)
-//         })
-//     }
-// }
-
-// const NOT_FOUND: &str = "not_found";
-// const UNGROUPED: &str = "ungrouped";

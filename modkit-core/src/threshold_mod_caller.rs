@@ -150,7 +150,7 @@ impl MultipleThresholdModCaller {
     }
 
     pub fn base_thresholds(&self) -> [f32; 4] {
-        let mut thresholds = [0f32; 4];
+        let mut thresholds = [self.default_threshold; 4];
         for (base, threshold) in self.iter_thresholds() {
             thresholds[*base as usize] = *threshold;
         }
