@@ -306,17 +306,29 @@ pub fn parse_forward_motifs(
     input_motifs: &Option<Vec<String>>,
     cpg: bool,
 ) -> anyhow::Result<Option<Vec<OverlappingRegexOffset>>> {
-    input_motifs
-        .as_ref()
-        .map(|raw_parts| {
-            RegexMotif::from_raw_parts(raw_parts, cpg).map(|rms| {
-                rms.into_iter()
-                    .map(|rm| {
-                        let offset = rm.forward_offset();
-                        OverlappingRegexOffset::new(rm.forward_pattern, offset)
-                    })
-                    .collect::<Vec<OverlappingRegexOffset>>()
-            })
-        })
-        .transpose()
+    match (input_motifs.as_ref(), cpg) {
+        (Some(raw_motifs), _) => {
+            let motifs = RegexMotif::from_raw_parts(&raw_motifs, cpg)?;
+            let motifs = motifs
+                .into_iter()
+                .map(|mot| {
+                    let offset = mot.forward_offset();
+                    OverlappingRegexOffset::new(mot.forward_pattern, offset)
+                })
+                .collect::<Vec<OverlappingRegexOffset>>();
+            Ok(Some(motifs))
+        }
+        (None, true) => {
+            let motifs = RegexMotif::from_raw_parts(&[], true).unwrap();
+            let motifs = motifs
+                .into_iter()
+                .map(|mot| {
+                    let offset = mot.forward_offset();
+                    OverlappingRegexOffset::new(mot.forward_pattern, offset)
+                })
+                .collect::<Vec<OverlappingRegexOffset>>();
+            Ok(Some(motifs))
+        }
+        (None, false) => Ok(None),
+    }
 }
