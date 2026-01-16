@@ -467,6 +467,44 @@ impl MultipleMotifBedmethylWriter<BufWriter<File>> {
     }
 }
 
+impl MultipleMotifBedmethylWriter<ParCompress<Bgzf>> {
+    pub(crate) fn new_bgzf(
+        out_path: &PathBuf,
+        with_header: bool,
+        bed_rmod_args: &BedRModArgs,
+        header: &HeaderView,
+        modified_bases_options: Option<&Vec<ModifiedBasesOptions>>,
+        multi_progress: MultiProgress,
+        return_mem: Sender<ModBasePileup2>,
+        bgzf_threads: usize,
+    ) -> anyhow::Result<Self> {
+        let fh = File::create(out_path)?;
+        let write_pb = multi_progress.add(get_ticker_with_rate());
+        let out_fn = out_path
+            .file_name()
+            .and_then(|x| x.to_str())
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| "failed to parse filename".to_string());
+        write_pb.set_message(format!("B written to output: {out_fn}"));
+        write_pb.set_position(0);
+
+        let mut writer = RecordingWriter::new_bgzf(fh, bgzf_threads, write_pb);
+        if with_header {
+            writer.write(bedmethyl_header().as_bytes())?;
+        } else if bed_rmod_args.enabled() {
+            let modified_bases_options =
+                modified_bases_options.ok_or_else(|| {
+                    anyhow!("--modified-bases required for --bedrmod")
+                })?;
+            let bedrmod_header =
+                bed_rmod_args.header(&header, modified_bases_options)?;
+            writer.write(bedrmod_header.as_bytes())?;
+        }
+
+        Ok(Self { writer, return_mem, bedrmod_spec: bed_rmod_args.enabled() })
+    }
+}
+
 impl<T: Write> PileupWriter<ModBasePileup2>
     for MultipleMotifBedmethylWriter<T>
 {

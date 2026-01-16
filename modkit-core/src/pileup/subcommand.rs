@@ -506,6 +506,29 @@ impl ModBamPileup {
             info!(
                 "more than one motif requires use of general pileup processor"
             );
+            let motif_primary_bases = regex_motifs
+                .iter()
+                .map(|mot| mot.motif_info.primary_base)
+                .collect::<HashSet<DnaBase>>();
+            if let Some(modified_bases) = self.modified_bases.as_ref() {
+                for primary_base in
+                    modified_bases.iter().map(|x| x.primary_base)
+                {
+                    if !motif_primary_bases.contains(&primary_base) {
+                        info!(
+                            "adding single-base motif: '{} 0'",
+                            primary_base.char()
+                        );
+                        regex_motifs.push(
+                            RegexMotif::parse_string(
+                                &primary_base.char().to_string(),
+                                0,
+                            )
+                            .unwrap(),
+                        );
+                    }
+                }
+            }
             return Ok((None, Some(regex_motifs)));
         }
         if let Some(modified_bases) = self.modified_bases.as_ref() {
@@ -839,6 +862,9 @@ impl ModBamPileup {
             let use_special_writer = have_multiple_motifs && preset.is_none();
             match out_fp_str.as_str() {
                 "stdout" | "-" => {
+                    if self.bgzf {
+                        bail!("bgzf compression requires file output")
+                    }
                     if have_multiple_motifs && use_special_writer {
                         debug!("using multiple-motif stdout writer");
                         Box::new(MultipleMotifBedmethylWriter::new_stdout(
@@ -865,15 +891,33 @@ impl ModBamPileup {
                     create_out_directory(&out_fp_str)?;
                     if use_special_writer {
                         debug!("using multiple-motif writer");
-                        Box::new(MultipleMotifBedmethylWriter::new_file(
-                            &Path::new(&out_fp_str).to_path_buf(),
-                            self.with_header,
-                            &self.bedrmodargs,
-                            &header,
-                            self.modified_bases.as_ref(),
-                            master_progress.clone(),
-                            empties_tx.clone(),
-                        )?)
+                        if self.bgzf {
+                            info!(
+                                "using bgzf compression with {} compression \
+                                 threads",
+                                self.bgzf_threads
+                            );
+                            Box::new(MultipleMotifBedmethylWriter::new_bgzf(
+                                &Path::new(&out_fp_str).to_path_buf(),
+                                self.with_header,
+                                &self.bedrmodargs,
+                                &header,
+                                self.modified_bases.as_ref(),
+                                master_progress.clone(),
+                                empties_tx.clone(),
+                                self.bgzf_threads,
+                            )?)
+                        } else {
+                            Box::new(MultipleMotifBedmethylWriter::new_file(
+                                &Path::new(&out_fp_str).to_path_buf(),
+                                self.with_header,
+                                &self.bedrmodargs,
+                                &header,
+                                self.modified_bases.as_ref(),
+                                master_progress.clone(),
+                                empties_tx.clone(),
+                            )?)
+                        }
                     } else {
                         if self.bgzf {
                             info!(
