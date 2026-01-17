@@ -191,6 +191,7 @@ impl MultiSequence {
             return true;
         }
         if self.seq.len() < other.seq.len() {
+            // TODO:
             return false;
         }
         assert!(self.seq.len() >= other.seq.len());
@@ -210,15 +211,6 @@ impl MultiSequence {
                         .unwrap_or_else(|| (*a, IupacBase::N))
                 })
                 .all(|(a, b)| a.is_superset(&b));
-            // original implementation left here for reference.. In this case a
-            // motif such as GS[a]TC would be a superset of C[a]TG,
-            // but that's not exactly true so I changed to the above
-            // implementaton with no regression on H. pylori
-            // let matches = self
-            //     .seq
-            //     .iter()
-            //     .filter_map(|(x, a)| other.seq.get(x).map(|b| (a, b)))
-            //     .all(|(a, b)| a.is_superset(b));
             matches
         } else {
             false
@@ -1457,6 +1449,50 @@ impl Display for MotifRelationship {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum SequenceRelationship {
+    Equal,
+    Subset,
+    Superset,
+    Intersect,
+    Disjoint,
+}
+
+impl SequenceRelationship {
+    fn recip(&self) -> Self {
+        match self {
+            SequenceRelationship::Equal => Self::Equal,
+            SequenceRelationship::Subset => Self::Superset,
+            SequenceRelationship::Superset => Self::Subset,
+            SequenceRelationship::Intersect => Self::Intersect,
+            SequenceRelationship::Disjoint => Self::Disjoint,
+        }
+    }
+
+    fn as_verb(&self) -> &'static str {
+        match self {
+            SequenceRelationship::Equal => "is equal to",
+            SequenceRelationship::Subset => "is subset of",
+            SequenceRelationship::Superset => "is superset of",
+            SequenceRelationship::Intersect => "overlaps (intersects) with",
+            SequenceRelationship::Disjoint => "is disjoint to",
+        }
+    }
+}
+
+impl Display for SequenceRelationship {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            SequenceRelationship::Equal => "equal",
+            SequenceRelationship::Subset => "subset",
+            SequenceRelationship::Superset => "superset",
+            SequenceRelationship::Intersect => "intersect",
+            SequenceRelationship::Disjoint => "disjoint",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 #[derive(new)]
 struct EnrichedMotifData {
     motif: EnrichedMotif,
@@ -2077,6 +2113,78 @@ impl EnrichedMotif {
                 .multi_sequence
                 .edit_distance(&other.multi_sequence, context_size);
             MotifRelationship::Disjoint { edit_distance }
+        }
+    }
+
+    pub(super) fn compare_sequence_set(
+        &self,
+        other: &Self,
+    ) -> SequenceRelationship {
+        if self == other {
+            return SequenceRelationship::Equal;
+        } else if self.mod_code() != other.mod_code() {
+            return SequenceRelationship::Disjoint;
+        }
+
+        let this_positions =
+            self.multi_sequence.seq.keys().copied().collect::<FxHashSet<_>>();
+        let other_positions =
+            other.multi_sequence.seq.keys().copied().collect::<FxHashSet<_>>();
+        if this_positions == other_positions {
+            let pairs = self
+                .multi_sequence
+                .seq
+                .iter()
+                .filter_map(|(pos, b)| {
+                    other.multi_sequence.seq.get(pos).map(|c| (*b, *c))
+                })
+                .collect::<Vec<(IupacBase, IupacBase)>>();
+            if pairs.iter().all(|(x, y)| x.is_superset(&y)) {
+                SequenceRelationship::Superset
+            } else if pairs.iter().all(|(x, y)| y.is_superset(x)) {
+                SequenceRelationship::Subset
+            } else {
+                let overlap = pairs
+                    .iter()
+                    .any(|(x, y)| x.is_superset(&y) || y.is_superset(&x));
+                if overlap {
+                    SequenceRelationship::Intersect
+                } else {
+                    SequenceRelationship::Disjoint
+                }
+            }
+        } else if this_positions.is_subset(&other_positions) {
+            // this motif can either be a superset since it constrains fewer
+            // positions, an intersection, or disjoint
+            let pairs = self
+                .multi_sequence
+                .seq
+                .iter()
+                .filter_map(|(pos, b)| {
+                    other.multi_sequence.seq.get(pos).map(|c| (*b, *c))
+                })
+                .collect::<Vec<(IupacBase, IupacBase)>>();
+            if pairs.iter().all(|(x, y)| x.is_superset(y)) {
+                SequenceRelationship::Superset
+            } else if pairs
+                .iter()
+                .any(|(x, y)| x.is_superset(y) || y.is_superset(x))
+            {
+                SequenceRelationship::Intersect
+            } else {
+                SequenceRelationship::Disjoint
+            }
+        } else if this_positions.is_superset(&other_positions) {
+            // this motif is either a subset, intersection, or disjoint
+            assert!(other_positions.is_subset(&this_positions));
+            other.compare_sequence_set(self).recip()
+        } else {
+            assert!(
+                this_positions.is_disjoint(&other_positions)
+                    || !this_positions.intersection(&other_positions).count()
+                        > 0
+            );
+            SequenceRelationship::Intersect
         }
     }
 
@@ -3189,6 +3297,7 @@ mod find_motifs_mod_tests {
     use crate::motifs::iupac::IupacBase;
     use crate::motifs::{
         merge_motifs, EnrichedMotif, MotifRelationship, MultiSequence,
+        SequenceRelationship,
     };
     use bitvec::prelude::*;
     use common_macros::hash_map;
@@ -3496,5 +3605,47 @@ mod find_motifs_mod_tests {
         // let x_merged = merge_motifs(x);
         // dbg!(x_merged.iter().map(|x|
         // x.to_string()).collect::<Vec<String>>());
+    }
+
+    #[test]
+    fn test_motif_subset_gh553() {
+        let codelookup = hash_map!(
+            SIX_METHYL_ADENINE => DnaBase::A
+        );
+        let a = EnrichedMotif::new_from_parts(
+            "GASTC",
+            "a",
+            "1",
+            [12, 12],
+            &codelookup,
+        )
+        .unwrap();
+        let b = EnrichedMotif::new_from_parts(
+            "GANTC",
+            "a",
+            "1",
+            [12, 12],
+            &codelookup,
+        )
+        .unwrap();
+        assert_eq!(a.compare_sequence_set(&b), SequenceRelationship::Subset);
+        assert_eq!(b.compare_sequence_set(&a), SequenceRelationship::Superset);
+        let a = EnrichedMotif::new_from_parts(
+            "GAATCNG",
+            "a",
+            "2",
+            [12, 12],
+            &codelookup,
+        )
+        .unwrap();
+        let b = EnrichedMotif::new_from_parts(
+            "GAATC",
+            "a",
+            "2",
+            [12, 12],
+            &codelookup,
+        )
+        .unwrap();
+        assert_eq!(a.compare_sequence_set(&b), SequenceRelationship::Subset);
     }
 }

@@ -4,6 +4,7 @@ use std::sync::RwLock;
 
 use anyhow::{anyhow, bail, Context};
 use clap::{Args, Subcommand};
+use common_macros::hash_map;
 use indicatif::{MultiProgress, ParallelProgressIterator};
 use itertools::Itertools;
 use log::{debug, info};
@@ -40,6 +41,9 @@ pub enum EntryMotifs {
     /// Create BED file with all locations of a sequence motif.
     /// Example: modkit motif bed CG 0
     Bed(EntryMotifBed),
+    /// Compare two motif sequences.
+    #[clap(hide = true)]
+    Compare(EntryCompareMotifs),
 }
 
 impl EntryMotifs {
@@ -49,6 +53,7 @@ impl EntryMotifs {
             EntryMotifs::Evaluate(x) => x.run(),
             EntryMotifs::Refine(x) => x.run(),
             EntryMotifs::Bed(x) => x.run(),
+            EntryMotifs::Compare(x) => x.run(),
         }
     }
 }
@@ -504,11 +509,16 @@ impl EntryFindMotifs {
         if let Some(motifs_for_base) = others.get(&motif.canonical_base) {
             motifs_for_base
                 .iter()
-                .map(|m| motif.compare(m, context_size))
+                .map(|m| {
+                    (
+                        motif.compare(m, context_size),
+                        motif.compare_sequence_set(m),
+                    )
+                })
                 .enumerate()
-                .min_by(|(_, a), (_, b)| a.cmp(b))
-                .map(|(idx, rel)| {
-                    (motifs_for_base[idx].to_string(), rel.to_string())
+                .min_by(|(_, (a, _)), (_, (b, _))| a.cmp(b))
+                .map(|(idx, (_rel, seq_rel))| {
+                    (motifs_for_base[idx].to_string(), seq_rel.to_string())
                 })
                 .unwrap_or(("-".to_string(), "-".to_string()))
         } else {
@@ -549,7 +559,7 @@ impl EntryFindMotifs {
             let high_count = result.total_high_count;
             let low_count = result.total_low_count;
             let mid_count = result.total_mid_count;
-            let (closest, relationship) =
+            let (closest, seq_relationship) =
                 self.get_closest_motif(&result.motif, &organized_by_can_base);
             let row = row![
                 mod_code,
@@ -559,7 +569,7 @@ impl EntryFindMotifs {
                 high_count,
                 low_count,
                 mid_count,
-                relationship,
+                seq_relationship,
                 closest
             ];
             tab.add_row(row);
@@ -596,7 +606,7 @@ impl EntryFindMotifs {
             let high_count = result.total_high_count;
             let low_count = result.total_low_count;
             let mid_count = result.total_mid_count;
-            let (closest, relationship) =
+            let (closest, seq_relationship) =
                 self.get_closest_motif(&result.motif, &organized_by_can_base);
             let row = row![
                 motif_repr,
@@ -604,7 +614,7 @@ impl EntryFindMotifs {
                 high_count,
                 low_count,
                 mid_count,
-                relationship,
+                seq_relationship,
                 closest
             ];
             tab.add_row(row);
@@ -651,7 +661,7 @@ impl EntryFindMotifs {
             let low_count = result.total_low_count;
             let mid_count = result.total_mid_count;
             let row = if let Some(km) = known_motifs.as_ref() {
-                let (closest, relationship) =
+                let (closest, seq_relationship) =
                     self.get_closest_motif(&result.motif, km);
                 row![
                     mod_code,
@@ -661,7 +671,7 @@ impl EntryFindMotifs {
                     high_count,
                     low_count,
                     mid_count,
-                    relationship,
+                    seq_relationship,
                     closest
                 ]
             } else {
@@ -713,7 +723,7 @@ impl EntryFindMotifs {
             let low_count = result.total_low_count;
             let mid_count = result.total_mid_count;
             let row = if let Some(km) = known_motifs.as_ref() {
-                let (closest, relationship) =
+                let (closest, seq_relationship) =
                     self.get_closest_motif(&result.motif, km);
                 row![
                     motif_repr,
@@ -721,7 +731,7 @@ impl EntryFindMotifs {
                     high_count,
                     low_count,
                     mid_count,
-                    relationship,
+                    seq_relationship,
                     closest
                 ]
             } else {
@@ -1056,5 +1066,66 @@ impl EntryMotifBed {
     fn run(&self) -> anyhow::Result<()> {
         let _handle = init_logging(None);
         motif_bed(&self.fasta, &self.motif, self.offset, self.mask)
+    }
+}
+
+#[derive(Args)]
+#[command(arg_required_else_help = true)]
+pub struct EntryCompareMotifs {
+    /// First motif in comparison. Format should be <sequence> <offset>
+    /// <mod_code>.
+    #[arg(short='a', num_args = 3, action = clap::ArgAction::Append)]
+    pub motif_a: Vec<String>,
+    /// Second motif in comparison. Format should be <sequence> <offset>
+    /// <mod_code>.
+    #[arg(short='b', num_args = 3, action = clap::ArgAction::Append)]
+    pub motif_b: Vec<String>,
+}
+
+impl EntryCompareMotifs {
+    fn calc_context_size(
+        raw: &[u8],
+        offset: usize,
+    ) -> anyhow::Result<[usize; 2]> {
+        if offset >= raw.len() {
+            bail!("offset must be less than motif length")
+        } else {
+            let right = raw[offset..]
+                .len()
+                .checked_sub(1)
+                .ok_or_else(|| anyhow!("offset too large"))?;
+            let ctx = std::cmp::max(offset, right);
+            Ok([ctx; 2])
+        }
+    }
+
+    fn parse_raw_motif(parts: &[String]) -> anyhow::Result<EnrichedMotif> {
+        if parts.len() != 3 {
+            bail!("incorrect number of parts, should be 3")
+        } else {
+            let raw_seq = parts[0].as_bytes();
+            let offset = parts[1].parse::<usize>()?;
+            let primary_base = DnaBase::try_from(raw_seq[offset])?;
+            let mod_code = ModCodeRepr::parse(&parts[2])?;
+            let context = Self::calc_context_size(raw_seq, offset)?;
+            let motif = EnrichedMotif::new_from_parts(
+                &parts[0],
+                &parts[2],
+                &parts[1],
+                context,
+                &hash_map! {mod_code => primary_base},
+            )?;
+            Ok(motif)
+        }
+    }
+
+    pub fn run(&self) -> anyhow::Result<()> {
+        let _ = init_logging(None);
+        let motif_a = Self::parse_raw_motif(&self.motif_a)?;
+        let motif_b = Self::parse_raw_motif(&self.motif_b)?;
+        let relationship = motif_a.compare_sequence_set(&motif_b).as_verb();
+        info!("{motif_a} {relationship} {motif_b}");
+
+        Ok(())
     }
 }
