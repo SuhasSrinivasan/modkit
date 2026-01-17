@@ -3,7 +3,6 @@ use std::{cmp::Ordering, marker::PhantomData, ops::Range, path::PathBuf};
 use anyhow::{anyhow, bail};
 use bitvec::slice::BitSlice;
 use itertools::Itertools;
-use log::debug;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::ops::BitOrAssign;
 
@@ -45,7 +44,12 @@ where
     ) -> anyhow::Result<ModBasePileup2>;
 }
 
-pub(super) struct DnaPileupWorker<T, M, const STRANDS: usize> {
+pub(super) struct DnaPileupWorker<
+    T,
+    M,
+    const STRANDS: usize,
+    const CHECK_DEPTH: bool,
+> {
     reader: bam::IndexedReader,
     phased: bool,
     dna_mod_option: DnaModOption,
@@ -61,9 +65,10 @@ pub(super) struct DnaPileupWorker<T, M, const STRANDS: usize> {
 
 impl<
         T: Send + Sync,
-        M: ACountsMatrix<T, STRANDS> + Sync + Send,
+        M: ACountsMatrix<T, STRANDS, CHECK_DEPTH> + Sync + Send,
         const STRANDS: usize,
-    > DnaPileupWorker<T, M, STRANDS>
+        const CHECK_DEPTH: bool,
+    > DnaPileupWorker<T, M, STRANDS, CHECK_DEPTH>
 {
     pub(crate) fn new(
         bam_fp: &PathBuf,
@@ -76,6 +81,7 @@ impl<
         mod_thresholds: Vec<(ModCodeRepr, f32)>,
         edge_filter: Option<&EdgeFilter>,
         motif_offset: u32,
+        max_depth: u16,
     ) -> anyhow::Result<Self> {
         let combine_mods = match dna_mod_option {
             DnaModOption::Combine => true,
@@ -99,7 +105,7 @@ impl<
             edge_filter.map(|ef| ef.edge_filter_start).unwrap_or(0usize);
         let edge_filter_end =
             edge_filter.map(|ef| ef.edge_filter_end).unwrap_or(0usize);
-        let matrix = M::new(0usize, phased, mod_codes, motif_offset);
+        let matrix = M::new(0usize, phased, mod_codes, motif_offset, max_depth);
 
         Ok(Self {
             reader,
@@ -119,9 +125,10 @@ impl<
 
 impl<
         T: Send + Sync,
-        M: ACountsMatrix<T, STRANDS> + Sync + Send,
+        M: ACountsMatrix<T, STRANDS, CHECK_DEPTH> + Sync + Send,
         const STRANDS: usize,
-    > PileupWorker for DnaPileupWorker<T, M, STRANDS>
+        const CHECK_DEPTH: bool,
+    > PileupWorker for DnaPileupWorker<T, M, STRANDS, CHECK_DEPTH>
 {
     fn process(
         &mut self,
@@ -260,6 +267,11 @@ impl<
                     None => Some((None, rpos, ref_base)),
                 });
             'pileup: for (qpos, rpos, ref_base) in aligned_pairs_iter {
+                if CHECK_DEPTH {
+                    if self.matrix.reached_max_depth(rpos, reverse, hp) {
+                        continue 'pileup;
+                    }
+                }
                 match (qpos, mod_state) {
                     // at this aligned position we have a base modification call
                     (Some(q), Some(mp)) if q == mp.mod_position => {
@@ -367,7 +379,6 @@ impl<
                                             tmp
                                         }
                                     };
-                                    debug!("no more mod states?");
                                     self.matrix.incr_diff_call(
                                         rpos, base, ref_base, reverse, hp,
                                     );
@@ -459,6 +470,7 @@ pub struct GenericPileupWorker {
     caller: MultipleThresholdModCaller,
     pileup_numeric_options: PileupNumericOptions,
     combine_strands: bool,
+    max_depth: u16,
 }
 
 impl GenericPileupWorker {
@@ -469,6 +481,7 @@ impl GenericPileupWorker {
         caller: MultipleThresholdModCaller,
         pileup_numeric_options: PileupNumericOptions,
         combine_strands: bool,
+        max_depth: u16,
     ) -> anyhow::Result<Self> {
         let mut reader = bam::IndexedReader::from_path(in_bam_fp)?;
         if reader_is_cram(&reader) {
@@ -495,6 +508,7 @@ impl GenericPileupWorker {
             caller,
             pileup_numeric_options,
             combine_strands,
+            max_depth,
         })
     }
 }
@@ -572,7 +586,7 @@ impl PileupWorker for GenericPileupWorker {
             chrom_features
                 .entry(position_strand)
                 .or_insert_with(Tally2::default)
-                .add_call(call, motif_idxs);
+                .add_call(call, motif_idxs, self.max_depth);
         };
 
         let mut mod_pos = Option::<usize>::None;
@@ -964,12 +978,14 @@ const DYN_OTHER_MOD_A: usize = 8usize;
 // const DYN_OTHER_MOD_T: usize = 11usize;
 const DYN_N_CONSTANT_COUNTS: usize = 12usize;
 
-pub(super) trait ACountsMatrix<T, const STRANDS: usize> {
+pub(super) trait ACountsMatrix<T, const STRANDS: usize, const CHECK_DEPTH: bool>
+{
     fn new(
         width: usize,
         phased: bool,
         mod_codes: Vec<(DnaBase, ModCodeRepr)>,
         motif_offset: u32,
+        max_depth: u16,
     ) -> Self;
     fn reset(&mut self, width: usize, phased: bool);
     #[inline]
@@ -992,6 +1008,13 @@ pub(super) trait ACountsMatrix<T, const STRANDS: usize> {
             );
             return;
         }
+
+        if CHECK_DEPTH {
+            if self.reached_max_depth(rpos, reverse, haplotype) {
+                return;
+            }
+        }
+
         if mod_state.filtered {
             self.incr_filtered_count(
                 rpos,
@@ -1055,6 +1078,12 @@ pub(super) trait ACountsMatrix<T, const STRANDS: usize> {
     );
     fn stride(&self, dna_mod_option: DnaModOption) -> usize;
     fn strand_width(&self) -> usize;
+    fn reached_max_depth(
+        &self,
+        rpos: u32,
+        reverse: bool,
+        haplotype: u8,
+    ) -> bool;
     fn decode(
         &self,
         start_pos: u32,
@@ -1093,14 +1122,16 @@ pub(super) struct CountsMatrix {
     inner: Vec<u16>,
     mod_codes: Vec<(DnaBase, ModCodeRepr)>,
     motif_offset: u32,
+    max_depth: u16,
 }
 
-impl ACountsMatrix<DnaAllContext, 2> for CountsMatrix {
+impl ACountsMatrix<DnaAllContext, 2, false> for CountsMatrix {
     fn new(
         width: usize,
         phased: bool,
         mod_codes: Vec<(DnaBase, ModCodeRepr)>,
         motif_offset: u32,
+        max_depth: u16,
     ) -> Self {
         let strand_width = width * DNA_N_FEATURES;
         let size = if phased {
@@ -1109,7 +1140,7 @@ impl ACountsMatrix<DnaAllContext, 2> for CountsMatrix {
             strand_width * 2 // 2 for each strand
         };
         let inner = vec![0u16; size];
-        Self { strand_width, inner, mod_codes, motif_offset }
+        Self { strand_width, inner, mod_codes, motif_offset, max_depth }
     }
 
     fn reset(&mut self, width: usize, phased: bool) {
@@ -1132,7 +1163,8 @@ impl ACountsMatrix<DnaAllContext, 2> for CountsMatrix {
             reverse,
             haplotype,
         );
-        self.inner[offset + DELETE_OFFSET] += 1;
+        self.inner[offset + DELETE_OFFSET] =
+            self.inner[offset + DELETE_OFFSET].saturating_add(1);
     }
 
     #[inline]
@@ -1155,10 +1187,12 @@ impl ACountsMatrix<DnaAllContext, 2> for CountsMatrix {
         );
         match base {
             DnaBase::A => {
-                self.inner[offset + CAN_A_OFFSET] += 1;
+                self.inner[offset + CAN_A_OFFSET] =
+                    self.inner[offset + CAN_A_OFFSET].saturating_add(1);
             }
             DnaBase::C => {
-                self.inner[offset + CAN_C_OFFSET] += 1;
+                self.inner[offset + CAN_C_OFFSET] =
+                    self.inner[offset + CAN_C_OFFSET].saturating_add(1);
             }
             DnaBase::G => {}
             DnaBase::T => {}
@@ -1184,16 +1218,20 @@ impl ACountsMatrix<DnaAllContext, 2> for CountsMatrix {
         match base {
             DnaBase::A => {
                 if combine_mods || mod_code_repr == SIX_METHYL_ADENINE {
-                    self.inner[offset + METH_A_OFFSET] += 1;
+                    self.inner[offset + METH_A_OFFSET] =
+                        self.inner[offset + METH_A_OFFSET].saturating_add(1);
                 } else {
-                    self.inner[offset + OTHER_C_OFFSET] += 1;
+                    self.inner[offset + OTHER_C_OFFSET] =
+                        self.inner[offset + OTHER_C_OFFSET].saturating_add(1);
                 }
             }
             DnaBase::C => {
                 if combine_mods || mod_code_repr == METHYL_CYTOSINE {
-                    self.inner[offset + METH_C_OFFSET] += 1;
+                    self.inner[offset + METH_C_OFFSET] =
+                        self.inner[offset + METH_C_OFFSET].saturating_add(1);
                 } else {
-                    self.inner[offset + OTHER_C_OFFSET] += 1;
+                    self.inner[offset + OTHER_C_OFFSET] =
+                        self.inner[offset + OTHER_C_OFFSET].saturating_add(1);
                 }
             }
             DnaBase::G => {}
@@ -1217,10 +1255,12 @@ impl ACountsMatrix<DnaAllContext, 2> for CountsMatrix {
         );
         match base {
             DnaBase::A => {
-                self.inner[offset + FILT_A_OFFSET] += 1;
+                self.inner[offset + FILT_A_OFFSET] =
+                    self.inner[offset + FILT_A_OFFSET].saturating_add(1);
             }
             DnaBase::C => {
-                self.inner[offset + FILT_C_OFFSET] += 1;
+                self.inner[offset + FILT_C_OFFSET] =
+                    self.inner[offset + FILT_C_OFFSET].saturating_add(1);
             }
             DnaBase::G => {}
             DnaBase::T => {}
@@ -1243,14 +1283,25 @@ impl ACountsMatrix<DnaAllContext, 2> for CountsMatrix {
             haplotype,
         );
         if base == reference_base {
-            self.inner[offset + NO_CALL_OFFSET] += 1;
+            self.inner[offset + NO_CALL_OFFSET] =
+                self.inner[offset + NO_CALL_OFFSET].saturating_add(1);
         } else {
-            self.inner[offset] += 1;
+            self.inner[offset] = self.inner[offset].saturating_add(1);
         }
     }
 
     fn strand_width(&self) -> usize {
         self.strand_width
+    }
+
+    #[inline]
+    fn reached_max_depth(
+        &self,
+        _rpos: u32,
+        _reverse: bool,
+        _haplotype: u8,
+    ) -> bool {
+        unreachable!()
     }
 
     fn stride(&self, dna_mod_option: DnaModOption) -> usize {
@@ -1298,12 +1349,13 @@ impl ACountsMatrix<DnaAllContext, 2> for CountsMatrix {
     }
 }
 
-impl ACountsMatrix<DnaCytosineCombine, 2> for CountsMatrix {
+impl ACountsMatrix<DnaCytosineCombine, 2, false> for CountsMatrix {
     fn new(
         width: usize,
         phased: bool,
         mod_codes: Vec<(DnaBase, ModCodeRepr)>,
         motif_offset: u32,
+        max_depth: u16,
     ) -> Self {
         let strand_width = width * DNA_N_FEATURES_C_COMBINE;
         let size = if phased {
@@ -1312,7 +1364,7 @@ impl ACountsMatrix<DnaCytosineCombine, 2> for CountsMatrix {
             strand_width * 2 // 2 for each strand
         };
         let inner = vec![0u16; size];
-        Self { strand_width, inner, mod_codes, motif_offset }
+        Self { strand_width, inner, mod_codes, motif_offset, max_depth }
     }
 
     fn reset(&mut self, width: usize, phased: bool) {
@@ -1335,7 +1387,8 @@ impl ACountsMatrix<DnaCytosineCombine, 2> for CountsMatrix {
             reverse,
             haplotype,
         );
-        self.inner[offset + DELETE_OFFSET] += 1;
+        self.inner[offset + DELETE_OFFSET] =
+            self.inner[offset + DELETE_OFFSET].saturating_add(1);
     }
 
     #[inline]
@@ -1355,10 +1408,11 @@ impl ACountsMatrix<DnaCytosineCombine, 2> for CountsMatrix {
         );
         match base {
             DnaBase::C => {
-                self.inner[offset + CAN_C_OFFSET] += 1;
+                self.inner[offset + CAN_C_OFFSET] =
+                    self.inner[offset + CAN_C_OFFSET].saturating_add(1);
             }
             // Increase diff count
-            _ => self.inner[offset] += 1,
+            _ => self.inner[offset] = self.inner[offset].saturating_add(1),
         }
     }
 
@@ -1383,7 +1437,8 @@ impl ACountsMatrix<DnaCytosineCombine, 2> for CountsMatrix {
                 if mod_code == METHYL_CYTOSINE
                     || mod_code == HYDROXY_METHYL_CYTOSINE
                 {
-                    self.inner[offset + METH_C_OFFSET] += 1;
+                    self.inner[offset + METH_C_OFFSET] =
+                        self.inner[offset + METH_C_OFFSET].saturating_add(1);
                 }
             }
             _ => {}
@@ -1406,7 +1461,8 @@ impl ACountsMatrix<DnaCytosineCombine, 2> for CountsMatrix {
         );
         match canonical_base {
             DnaBase::C => {
-                self.inner[offset + FILT_C_OFFSET] += 1;
+                self.inner[offset + FILT_C_OFFSET] =
+                    self.inner[offset + FILT_C_OFFSET];
             }
             _ => {}
         }
@@ -1414,6 +1470,15 @@ impl ACountsMatrix<DnaCytosineCombine, 2> for CountsMatrix {
 
     fn strand_width(&self) -> usize {
         self.strand_width
+    }
+
+    fn reached_max_depth(
+        &self,
+        _rpos: u32,
+        _reverse: bool,
+        _haplotype: u8,
+    ) -> bool {
+        unreachable!()
     }
 
     fn stride(&self, _dna_mod_option: DnaModOption) -> usize {
@@ -1436,8 +1501,11 @@ impl ACountsMatrix<DnaCytosineCombine, 2> for CountsMatrix {
             haplotype,
         );
         match base {
-            DnaBase::C => self.inner[offset + NO_CALL_OFFSET] += 1,
-            _ => self.inner[offset] += 1,
+            DnaBase::C => {
+                self.inner[offset + NO_CALL_OFFSET] =
+                    self.inner[offset + NO_CALL_OFFSET].saturating_add(1)
+            }
+            _ => self.inner[offset] = self.inner[offset].saturating_add(1),
         }
     }
 
@@ -1460,12 +1528,13 @@ impl ACountsMatrix<DnaCytosineCombine, 2> for CountsMatrix {
     }
 }
 
-impl ACountsMatrix<DnaCpGCombineStrands, 1> for CountsMatrix {
+impl ACountsMatrix<DnaCpGCombineStrands, 1, false> for CountsMatrix {
     fn new(
         width: usize,
         phased: bool,
         mod_codes: Vec<(DnaBase, ModCodeRepr)>,
         motif_offset: u32,
+        max_depth: u16,
     ) -> Self {
         let strand_width = width * DNA_N_FEATURES;
         let size = if phased {
@@ -1474,7 +1543,7 @@ impl ACountsMatrix<DnaCpGCombineStrands, 1> for CountsMatrix {
             strand_width
         };
         let inner = vec![0u16; size];
-        Self { strand_width, inner, mod_codes, motif_offset }
+        Self { strand_width, inner, mod_codes, motif_offset, max_depth }
     }
 
     fn reset(&mut self, width: usize, phased: bool) {
@@ -1498,7 +1567,8 @@ impl ACountsMatrix<DnaCpGCombineStrands, 1> for CountsMatrix {
             false,
             haplotype,
         );
-        self.inner[offset + DELETE_OFFSET] += 1;
+        self.inner[offset + DELETE_OFFSET] =
+            self.inner[offset + DELETE_OFFSET].saturating_add(1);
     }
 
     #[inline]
@@ -1526,7 +1596,8 @@ impl ACountsMatrix<DnaCpGCombineStrands, 1> for CountsMatrix {
                      {haplotype}",
                     self.strand_width
                 );
-                self.inner[offset + CAN_C_OFFSET] += 1;
+                self.inner[offset + CAN_C_OFFSET] =
+                    self.inner[offset + CAN_C_OFFSET].saturating_add(1);
             }
             _ => {}
         }
@@ -1559,9 +1630,11 @@ impl ACountsMatrix<DnaCpGCombineStrands, 1> for CountsMatrix {
                          haplotype: {haplotype}",
                         self.strand_width
                     );
-                    self.inner[offset + METH_C_OFFSET] += 1;
+                    self.inner[offset + METH_C_OFFSET] =
+                        self.inner[offset + METH_C_OFFSET].saturating_add(1);
                 } else {
-                    self.inner[offset + OTHER_C_OFFSET] += 1;
+                    self.inner[offset + OTHER_C_OFFSET] =
+                        self.inner[offset + OTHER_C_OFFSET].saturating_add(1);
                 }
             }
             _ => {}
@@ -1585,7 +1658,8 @@ impl ACountsMatrix<DnaCpGCombineStrands, 1> for CountsMatrix {
         );
         match canonical_base {
             DnaBase::C => {
-                self.inner[offset + FILT_C_OFFSET] += 1;
+                self.inner[offset + FILT_C_OFFSET] =
+                    self.inner[offset + FILT_C_OFFSET].saturating_add(1);
             }
             _ => {}
         }
@@ -1609,16 +1683,26 @@ impl ACountsMatrix<DnaCpGCombineStrands, 1> for CountsMatrix {
         );
         match base {
             DnaBase::C => {
-                self.inner[offset + NO_CALL_OFFSET] += 1;
+                self.inner[offset + NO_CALL_OFFSET] =
+                    self.inner[offset + NO_CALL_OFFSET].saturating_add(1);
             }
             _ => {
-                self.inner[offset] += 1;
+                self.inner[offset] = self.inner[offset].saturating_add(1);
             }
         }
     }
 
     fn strand_width(&self) -> usize {
         self.strand_width
+    }
+
+    fn reached_max_depth(
+        &self,
+        _rpos: u32,
+        _reverse: bool,
+        _haplotype: u8,
+    ) -> bool {
+        unreachable!()
     }
 
     fn stride(&self, dna_mod_option: DnaModOption) -> usize {
@@ -1654,12 +1738,15 @@ impl ACountsMatrix<DnaCpGCombineStrands, 1> for CountsMatrix {
     }
 }
 
-impl<const STRANDS: usize> ACountsMatrix<Dynamic, STRANDS> for CountsMatrix {
+impl<const STRANDS: usize, const CHECK_DEPTH: bool>
+    ACountsMatrix<Dynamic, STRANDS, CHECK_DEPTH> for CountsMatrix
+{
     fn new(
         width: usize,
         phased: bool,
         mod_codes: Vec<(DnaBase, ModCodeRepr)>,
         motif_offset: u32,
+        max_depth: u16,
     ) -> Self {
         // N <- n_modified_bases
         // [N_diff, N_delete, N_nocall, N_canonical{A,C,G,T},
@@ -1673,7 +1760,7 @@ impl<const STRANDS: usize> ACountsMatrix<Dynamic, STRANDS> for CountsMatrix {
             strand_width * STRANDS // *STRANDS for each strand
         };
         let inner = vec![0u16; size];
-        Self { strand_width, inner, mod_codes, motif_offset }
+        Self { strand_width, inner, mod_codes, motif_offset, max_depth }
     }
 
     fn reset(&mut self, width: usize, phased: bool) {
@@ -1691,6 +1778,10 @@ impl<const STRANDS: usize> ACountsMatrix<Dynamic, STRANDS> for CountsMatrix {
     }
 
     fn incr_delete(&mut self, rpos: u32, reverse: bool, haplotype: u8) {
+        if <CountsMatrix as ACountsMatrix<Dynamic, STRANDS, CHECK_DEPTH>>::reached_max_depth(self, rpos, reverse, haplotype) {
+            return;
+        }
+
         let offset = calc_offset_dyn::<STRANDS>(
             rpos,
             self.strand_width,
@@ -1699,7 +1790,8 @@ impl<const STRANDS: usize> ACountsMatrix<Dynamic, STRANDS> for CountsMatrix {
             haplotype,
         );
         assert!(offset + DELETE_OFFSET < self.inner.len());
-        self.inner[offset + DELETE_OFFSET] += 1;
+        self.inner[offset + DELETE_OFFSET] =
+            self.inner[offset + DELETE_OFFSET].saturating_add(1);
     }
 
     fn incr_canonical_count(
@@ -1729,7 +1821,8 @@ impl<const STRANDS: usize> ACountsMatrix<Dynamic, STRANDS> for CountsMatrix {
             DnaBase::T => DYN_CAN_T,
         };
         assert!(offset + base_offset < self.inner.len());
-        self.inner[offset + base_offset] += 1;
+        self.inner[offset + base_offset] =
+            self.inner[offset + base_offset].saturating_add(1);
     }
 
     fn incr_modified_count(
@@ -1760,7 +1853,8 @@ impl<const STRANDS: usize> ACountsMatrix<Dynamic, STRANDS> for CountsMatrix {
                 .unwrap_or(DYN_OTHER_MOD_A + canonical_base as usize)
         };
         assert!(offset + mod_offset < self.inner.len(), "STRANDS {STRANDS}");
-        self.inner[offset + mod_offset] += 1;
+        self.inner[offset + mod_offset] =
+            self.inner[offset + mod_offset].saturating_add(1);
     }
 
     fn incr_filtered_count(
@@ -1778,7 +1872,8 @@ impl<const STRANDS: usize> ACountsMatrix<Dynamic, STRANDS> for CountsMatrix {
             haplotype,
         );
         assert!(offset + DYN_FILTERED < self.inner.len());
-        self.inner[offset + DYN_FILTERED] += 1;
+        self.inner[offset + DYN_FILTERED] =
+            self.inner[offset + DYN_FILTERED].saturating_add(1);
     }
 
     fn incr_diff_call(
@@ -1789,6 +1884,9 @@ impl<const STRANDS: usize> ACountsMatrix<Dynamic, STRANDS> for CountsMatrix {
         reverse: bool,
         haplotype: u8,
     ) {
+        if <CountsMatrix as ACountsMatrix<Dynamic, STRANDS, CHECK_DEPTH>>::reached_max_depth(self, rpos, reverse, haplotype) {
+            return;
+        }
         let offset = calc_offset_dyn::<STRANDS>(
             rpos,
             self.strand_width,
@@ -1797,18 +1895,43 @@ impl<const STRANDS: usize> ACountsMatrix<Dynamic, STRANDS> for CountsMatrix {
             haplotype,
         );
         if base == ref_base {
-            self.inner[offset + NO_CALL_OFFSET] += 1;
+            self.inner[offset + NO_CALL_OFFSET] =
+                self.inner[offset + NO_CALL_OFFSET].saturating_add(1);
         } else {
-            self.inner[offset] += 1;
+            self.inner[offset] = self.inner[offset].saturating_add(1);
         }
-    }
-
-    fn stride(&self, _dna_mod_option: DnaModOption) -> usize {
-        self.mod_codes.len()
     }
 
     fn strand_width(&self) -> usize {
         self.strand_width
+    }
+
+    fn reached_max_depth(
+        &self,
+        rpos: u32,
+        reverse: bool,
+        haplotype: u8,
+    ) -> bool {
+        let rpos =
+            if reverse { rpos.saturating_sub(self.motif_offset) } else { rpos };
+        let offset = calc_offset_dyn::<STRANDS>(
+            rpos,
+            self.strand_width,
+            DYN_N_CONSTANT_COUNTS + self.mod_codes.len(),
+            reverse,
+            haplotype,
+        );
+        let coverage = self.inner
+            [offset..(offset + DYN_N_CONSTANT_COUNTS + self.mod_codes.len())]
+            .iter()
+            .copied()
+            .reduce(|a, b| a.saturating_add(b))
+            .unwrap_or(0u16);
+        coverage >= self.max_depth
+    }
+
+    fn stride(&self, _dna_mod_option: DnaModOption) -> usize {
+        self.mod_codes.len()
     }
 
     fn decode_inner(
@@ -1869,11 +1992,13 @@ fn slice_to_counts_dynamic<'a>(
                                 0
                             }
                         })
-                        .sum::<u16>()
+                        .reduce(|a, b| a.saturating_add(b))
+                        .unwrap_or(0u16)
                         .saturating_sub(n_modified)
                         .saturating_add(n_anon_modified);
-                    let filtered_coverage =
-                        n_modified + n_canonical + n_other_modified;
+                    let filtered_coverage = n_modified
+                        .saturating_add(n_canonical)
+                        .saturating_add(n_other_modified);
                     PileupFeatureCounts2::new(
                         position,
                         strand,
@@ -1902,9 +2027,11 @@ fn slice_to_counts_dna_all_context(
 ) -> impl Iterator<Item = PileupFeatureCounts2> + '_ {
     sl.chunks_exact(DNA_N_FEATURES).enumerate().flat_map(move |(i, chunk)| {
         let position = (i as u32).saturating_add(start_pos);
-        let filtered_coverage_a = chunk[CAN_A_OFFSET] + chunk[METH_A_OFFSET];
-        let filtered_coverage_c =
-            chunk[CAN_C_OFFSET] + chunk[METH_C_OFFSET] + chunk[OTHER_C_OFFSET];
+        let filtered_coverage_a =
+            chunk[CAN_A_OFFSET].saturating_add(chunk[METH_A_OFFSET]);
+        let filtered_coverage_c = chunk[CAN_C_OFFSET]
+            .saturating_add(chunk[METH_C_OFFSET])
+            .saturating_add(chunk[OTHER_C_OFFSET]);
         let a_rec = PileupFeatureCounts2::new(
             position,
             strand,
@@ -1916,18 +2043,18 @@ fn slice_to_counts_dna_all_context(
             chunk[DELETE_OFFSET],
             chunk[FILT_A_OFFSET],
             chunk[0]
-                + chunk[FILT_C_OFFSET]
-                + chunk[CAN_C_OFFSET]
-                + chunk[METH_C_OFFSET]
-                + chunk[OTHER_C_OFFSET],
-            0u16,
+                .saturating_add(chunk[FILT_C_OFFSET])
+                .saturating_add(chunk[CAN_C_OFFSET])
+                .saturating_add(chunk[METH_C_OFFSET])
+                .saturating_add(chunk[OTHER_C_OFFSET]),
+            chunk[NO_CALL_OFFSET],
             0u8,
         );
 
         let n_not_c = chunk[0]
-            + chunk[FILT_A_OFFSET]
-            + chunk[CAN_A_OFFSET]
-            + chunk[METH_A_OFFSET];
+            .saturating_add(chunk[FILT_A_OFFSET])
+            .saturating_add(chunk[CAN_A_OFFSET])
+            .saturating_add(chunk[METH_A_OFFSET]);
         let meth_c_record = PileupFeatureCounts2::new(
             position,
             strand,
@@ -1972,10 +2099,8 @@ fn slice_to_counts_dna_c_combine(
     sl.chunks_exact(DNA_N_FEATURES_C_COMBINE).enumerate().map(
         move |(idx, chunk)| {
             let filtered_coverage_c =
-                chunk[CAN_C_OFFSET] + chunk[METH_C_OFFSET];
+                chunk[CAN_C_OFFSET].saturating_add(chunk[METH_C_OFFSET]);
             let n_not_c = chunk[0];
-            // let frac_meth_c =
-            //     chunk[METH_C_OFFSET] as f32 / filtered_coverage_c as f32;
             let position = start_pos.saturating_add(idx as u32);
 
             let meth_c_record = PileupFeatureCounts2::new(
@@ -2093,6 +2218,7 @@ enum ModifiedBase {
 
 #[derive(Debug, Default)]
 pub(super) struct Tally2 {
+    total_cov: u16,
     n_delete: u16,
     n_filtered: [u16; 4],
     basecall_counts: [u16; 4],
@@ -2101,17 +2227,28 @@ pub(super) struct Tally2 {
 }
 
 impl Tally2 {
-    pub(super) fn add_call(&mut self, call: Call, motif_idxs: u8) {
+    pub(super) fn add_call(
+        &mut self,
+        call: Call,
+        motif_idxs: u8,
+        max_coverage: u16,
+    ) {
         self.motif_idxs.bitor_assign(motif_idxs);
+        self.total_cov = self.total_cov.saturating_add(1);
+        if self.total_cov > max_coverage {
+            return;
+        }
         match call {
             Call::Delete => {
                 self.n_delete = self.n_delete.saturating_add(1);
             }
             Call::Filtered(read_base) => {
-                self.n_filtered[read_base as usize] += 1;
+                self.n_filtered[read_base as usize] =
+                    self.n_filtered[read_base as usize].saturating_add(1);
             }
             Call::NoCall(read_base) => {
-                self.basecall_counts[read_base as usize] += 1;
+                self.basecall_counts[read_base as usize] =
+                    self.basecall_counts[read_base as usize].saturating_add(1);
             }
             Call::CanonicalCall { primary_base, mod_codes } => {
                 let mod_calls = &mut self.modcall_counts[primary_base as usize];
@@ -2152,7 +2289,11 @@ impl Tally2 {
             .into_iter()
             .enumerate()
             .filter_map(|(i, calls)| {
-                let valid_coverage = calls.values().sum::<u16>();
+                let valid_coverage = calls
+                    .values()
+                    .copied()
+                    .reduce(|a, b| a.saturating_add(b))
+                    .unwrap_or(0u16);
                 if valid_coverage == 0 {
                     None
                 } else {
@@ -2166,7 +2307,8 @@ impl Tally2 {
                         ModifiedBase::UnModified => None,
                         ModifiedBase::Modified(_) => Some(*c),
                     })
-                    .sum::<u16>();
+                    .reduce(|a, b| a.saturating_add(b))
+                    .unwrap_or(0u16);
 
                 let (n_diff, n_nocall) = self
                     .basecall_counts

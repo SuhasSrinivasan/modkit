@@ -9,7 +9,7 @@ Only **primary alignments** are used in generating the table, it is recommended 
 ## Recommended usage
 
 > [!IMPORTANT]
-> Changes for v0.6.0
+> Changes for v0.6.0+
 
 For best performance use the `--modified-bases` option with the base modifications you intend to analyze. 
 
@@ -46,6 +46,9 @@ For example, a to make a pileup for a modBAM with direct RNA reads you may use: 
 
 > [!TIP]
 > If you don't know which modified bases are present in your modBAM run: `modkit modbam check-tags $bam --head 100`.
+
+> [!IMPORTANT]
+> If you have a modBAM with very high sequencing depth (>60,000X) use the `--high-depth` argument. See [limitations](./limitations.md) for details.
 
 ### Running without a reference
 A reference and `--modified-bases` is not required, for example:

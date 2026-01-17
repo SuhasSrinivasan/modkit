@@ -112,6 +112,21 @@ pub struct ModBamPileup {
     #[clap(help_heading = "Logging Options")]
     #[arg(long, default_value_t = false, hide_short_help = true)]
     suppress_progress: bool,
+    /// Maximum number of reads to use whilest tabulating counts at a given
+    /// position.
+    #[clap(help_heading = "Compute Options")]
+    #[arg(
+        long,
+        hide_short_help = true,
+        default_value_t = 8_000u16,
+        requires = "high_depth"
+    )]
+    max_depth: u16,
+    /// Flag to indicate that modBAM has exceptionally high depth (>65,000X)
+    /// and should be downsampled during pileup.
+    #[clap(help_heading = "Compute Options")]
+    #[arg(long, hide_short_help = false, default_value_t = false)]
+    high_depth: bool,
 
     // sampling args
     /// Sample this many reads when estimating the filtering threshold. Reads
@@ -569,6 +584,7 @@ impl ModBamPileup {
             if self.combine_strands
                 && Self::use_cpg(&regex_motifs)
                 && Self::is_5mc_5hmc_cpg(&modified_bases)?
+                && !self.high_depth
             {
                 debug!("using optimized CpG combine strands processor");
                 let preset = Presets::DnaCpGCombineStrands {
@@ -615,7 +631,10 @@ impl ModBamPileup {
                 return Ok((Some(preset), Some(regex_motifs)));
             }
 
-            if self.combine_mods && Self::only_cytosine(&modified_bases) {
+            if self.combine_mods
+                && Self::only_cytosine(&modified_bases)
+                && !self.high_depth
+            {
                 debug!("using optimized Cytosine combine mods processor");
                 let preset = Presets::DnaCytosineCombine;
                 let c_motif = RegexMotif::parse_string("C", 0).unwrap();
@@ -647,7 +666,9 @@ impl ModBamPileup {
                 motif_bases[i] = b;
             }
 
-            if Self::is_simple_dna(&modified_bases) && !self.use_dynamic {
+            if Self::is_simple_dna(&modified_bases)
+                && !(self.use_dynamic || self.high_depth)
+            {
                 let other_cytosine_mod =
                     modified_bases.iter().find_map(|(b, c)| {
                         if *b == DnaBase::C && *c != METHYL_CYTOSINE {
@@ -1110,29 +1131,31 @@ impl ModBamPileup {
                 let xs = (0..self.threads)
                     .map(|_| {
                         DnaPileupWorker::<
-                                DnaCpGCombineStrands,
-                                CountsMatrix,
-                                1,
-                            >::new(
-                                &in_bam_fp,
-                                ref_fasta,
-                                self.phased,
-                                base_thresholds,
-                                DNA_BASES_CYTOSINE_FIRST,
-                                if self.combine_mods {
-                                    DnaModOption::Combine
+                            DnaCpGCombineStrands,
+                            CountsMatrix,
+                            1,
+                            false,
+                        >::new(
+                            &in_bam_fp,
+                            ref_fasta,
+                            self.phased,
+                            base_thresholds,
+                            DNA_BASES_CYTOSINE_FIRST,
+                            if self.combine_mods {
+                                DnaModOption::Combine
+                            } else {
+                                if let Some(other) = cytosine_other_mod {
+                                    DnaModOption::Other(other)
                                 } else {
-                                    if let Some(other) = cytosine_other_mod {
-                                        DnaModOption::Other(other)
-                                    } else {
-                                        DnaModOption::Single
-                                    }
-                                },
-                                Vec::new(),
-                                per_mod_thresholds.clone(),
-                                edge_filter.as_ref(),
-                                1,
-                            )
+                                    DnaModOption::Single
+                                }
+                            },
+                            Vec::new(),
+                            per_mod_thresholds.clone(),
+                            edge_filter.as_ref(),
+                            1,
+                            u16::MAX,
+                        )
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
                 for x in xs {
@@ -1154,21 +1177,23 @@ impl ModBamPileup {
                 let xs = (0..self.threads)
                     .map(|_| {
                         DnaPileupWorker::<
-                                DnaCytosineCombine,
-                                CountsMatrix,
-                                2,
-                            >::new(
-                                &in_bam_fp,
-                                ref_fasta,
-                                self.phased,
-                                base_thresholds,
-                                DNA_BASES_CYTOSINE_FIRST,
-                                DnaModOption::Combine,
-                                Vec::new(),
-                                per_mod_thresholds.clone(),
-                                edge_filter.as_ref(),
-                                0,
-                            )
+                            DnaCytosineCombine,
+                            CountsMatrix,
+                            2,
+                            false,
+                        >::new(
+                            &in_bam_fp,
+                            ref_fasta,
+                            self.phased,
+                            base_thresholds,
+                            DNA_BASES_CYTOSINE_FIRST,
+                            DnaModOption::Combine,
+                            Vec::new(),
+                            per_mod_thresholds.clone(),
+                            edge_filter.as_ref(),
+                            0,
+                            u16::MAX,
+                        )
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
                 for x in xs {
@@ -1194,18 +1219,24 @@ impl ModBamPileup {
                 };
                 let xs = (0..self.threads)
                     .map(|_| {
-                        DnaPileupWorker::<DnaAllContext, CountsMatrix, 2>::new(
-                            &in_bam_fp,
-                            ref_fasta,
-                            self.phased,
-                            base_thresholds,
-                            motif_bases,
-                            dna_mod_option,
-                            Vec::new(),
-                            per_mod_thresholds.clone(),
-                            edge_filter.as_ref(),
-                            0,
-                        )
+                        DnaPileupWorker::<
+                                DnaAllContext,
+                                CountsMatrix,
+                                2,
+                                false,
+                            >::new(
+                                &in_bam_fp,
+                                ref_fasta,
+                                self.phased,
+                                base_thresholds,
+                                motif_bases,
+                                dna_mod_option,
+                                Vec::new(),
+                                per_mod_thresholds.clone(),
+                                edge_filter.as_ref(),
+                                0,
+                                u16::MAX,
+                            )
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
                 for x in xs {
@@ -1225,6 +1256,12 @@ impl ModBamPileup {
                         );
                     } else {
                         info!("using optimized workers for all-context");
+                    }
+                    if self.high_depth {
+                        info!(
+                            "using maximum of {} reads per position",
+                            self.max_depth
+                        );
                     }
                 });
                 let ref_fasta = self.reference_fasta.as_ref().expect(
@@ -1249,34 +1286,44 @@ impl ModBamPileup {
                 };
                 for _ in 0..self.threads {
                     if let Some(motif_offset) = motif_offset {
-                        let worker =
-                            DnaPileupWorker::<Dynamic, CountsMatrix, 1>::new(
-                                &in_bam_fp,
-                                ref_fasta,
-                                self.phased,
-                                base_thresholds,
-                                motif_bases,
-                                dna_mod_option,
-                                mod_codes.clone(),
-                                per_mod_thresholds.clone(),
-                                edge_filter.as_ref(),
-                                motif_offset as u32,
-                            )?;
+                        let worker = DnaPileupWorker::<
+                            Dynamic,
+                            CountsMatrix,
+                            1,
+                            true,
+                        >::new(
+                            &in_bam_fp,
+                            ref_fasta,
+                            self.phased,
+                            base_thresholds,
+                            motif_bases,
+                            dna_mod_option,
+                            mod_codes.clone(),
+                            per_mod_thresholds.clone(),
+                            edge_filter.as_ref(),
+                            motif_offset as u32,
+                            self.max_depth,
+                        )?;
                         workers.push(Box::new(worker))
                     } else {
-                        let worker =
-                            DnaPileupWorker::<Dynamic, CountsMatrix, 2>::new(
-                                &in_bam_fp,
-                                ref_fasta,
-                                self.phased,
-                                base_thresholds,
-                                motif_bases,
-                                dna_mod_option,
-                                mod_codes.clone(),
-                                per_mod_thresholds.clone(),
-                                edge_filter.as_ref(),
-                                0,
-                            )?;
+                        let worker = DnaPileupWorker::<
+                            Dynamic,
+                            CountsMatrix,
+                            2,
+                            true,
+                        >::new(
+                            &in_bam_fp,
+                            ref_fasta,
+                            self.phased,
+                            base_thresholds,
+                            motif_bases,
+                            dna_mod_option,
+                            mod_codes.clone(),
+                            per_mod_thresholds.clone(),
+                            edge_filter.as_ref(),
+                            0,
+                            self.max_depth,
+                        )?;
                         workers.push(Box::new(worker))
                     }
                 }
@@ -1304,6 +1351,7 @@ impl ModBamPileup {
                             threshold_caller.clone(),
                             pileup_options.clone(),
                             self.combine_strands,
+                            self.max_depth,
                         )
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
