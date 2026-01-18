@@ -55,10 +55,15 @@ Multiple motif sequences suspected to be present can be specified with the `--kn
 A machine-readable table of the motif sequences that are not found during the search can be specified with the `--known-motifs-table` option.
 Using this option will add two columns to the above tables:
 
-| name                | description                                                                                                | type |
-|---------------------|------------------------------------------------------------------------------------------------------------|------|
-| status              | equal, Subset, Superset, or Disjoint describes the relationship of the discovered motif to the known motif | str  |
-| closest_known_motif | of all motifs specified with `--known-motif` the one that is most similar to the discovered motif          | str  |
+| name                | description                                                                                                                               | type |
+|---------------------|-------------------------------------------------------------------------------------------------------------------------------------------|------|
+| status              | equal, subset, superset, intersect, or disjoint describes the relationship of the discovered motif to the known motif, more details below | str  |
+| closest_known_motif | of all motifs specified with `--known-motif` the one that is most similar to the discovered motif                                         | str  |
+
+The `status` column is the relationship of the set of sequences described by the motifs.
+Say you have two motifs A and B they represent a set of sequences \\(\mathbf{A}\\) and \\(\mathbf{B}\\) .
+For example, the motif `[a]` represents all sequences with at least one A primary base, whereas the set of sequences represented by G[a]TC is only {GATC}.
+The status fills in the blank in the statement: \\(\mathbf{A}\\) \\(?\\) \\(\mathbf{B}\\).
 
 If any of the known motifs are not found during the search process an additional table is also emitted in machine- and human-readable versions.
 

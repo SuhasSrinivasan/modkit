@@ -298,7 +298,7 @@ pub struct ModBamPileup {
     )]
     mask: bool,
     /// Specify which modified bases to tablulate counts for. These can be
-    /// the "long name" such as '5mC', '6mA' (or 'm6a' for RNA), or 'Inosine'.
+    /// the "long name" such as '5mC', '6mA' (or 'm6A' for RNA), or 'inosine'.
     /// You can also pass <primary_base>:<mod_code>, such as 'C:m'. Finally,
     /// when running with --combine-mods the reference base can be passed
     /// alone, such as 'C' or 'A'.

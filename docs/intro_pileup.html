@@ -38,7 +38,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-837351bc.js";
+            window.path_to_searchindex_js = "searchindex-e21d7306.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-2cf11e43.js"></script>
@@ -186,7 +186,7 @@ Only <strong>primary alignments</strong> are used in generating the table, it is
 <h2 id="recommended-usage"><a class="header" href="#recommended-usage">Recommended usage</a></h2>
 <blockquote class="blockquote-tag blockquote-tag-important">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>
-<p>Changes for v0.6.0</p>
+<p>Changes for v0.6.0+</p>
 </blockquote>
 <p>For best performance use the <code>--modified-bases</code> option with the base modifications you intend to analyze.</p>
 <p>For example:</p>
@@ -204,8 +204,8 @@ Only <strong>primary alignments</strong> are used in generating the table, it is
 </blockquote>
 <p>Passing <code>--modified-bases</code> not required, but directs Modkit to use optimized routines which will lead to better efficiency.
 This option <em>does</em> require a FASTA reference, and will only emit bedmethyl records for base modifications to the primary sequence base in the reference.
-For example, a command with the option <code>--modified-bases 5mC 5hmC 6mA</code> will <em>not</em> have 6mA records on genomic Cytosine locations where a read has a C&gt;A mismatch nor 5mC/5hmC records at genomic Adenine locations.
-For more details on how this option changes results from previous versions see <a href="./migrating_060.html">migrating to v0.6.0</a>.</p>
+For example, a command with the option <code>--modified-bases 5mC 5hmC 6mA</code> will <em>not</em> have 6mA records on reference Cytosine locations where a read has a C&gt;A mismatch nor 5mC/5hmC records at reference Adenine locations.
+For more details on how this option changes results from previous versions see <a href="./migrating_060.html">migrating to v0.6.0+</a>.</p>
 <p>A subset of the base modifications present in the modBAM can specified
 For example, passing the option <code>--modified-bases 5mC</code> when the modBAM contains 5mC and 5hmC calls will only produce 5mC records.</p>
 <blockquote class="blockquote-tag blockquote-tag-note">
@@ -220,6 +220,10 @@ For example, a to make a pileup for a modBAM with direct RNA reads you may use: 
 <blockquote class="blockquote-tag blockquote-tag-tip">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"></path></svg>Tip</p>
 <p>If you don’t know which modified bases are present in your modBAM run: <code>modkit modbam check-tags $bam --head 100</code>.</p>
+</blockquote>
+<blockquote class="blockquote-tag blockquote-tag-important">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>
+<p>If you have a modBAM with very high sequencing depth (&gt;60,000X) use the <code>--high-depth</code> argument. See <a href="./limitations.html">limitations</a> for details.</p>
 </blockquote>
 <h3 id="running-without-a-reference"><a class="header" href="#running-without-a-reference">Running without a reference</a></h3>
 <p>A reference and <code>--modified-bases</code> is not required, for example:</p>
@@ -346,6 +350,28 @@ CG-&gt;CH substitution such that no modification call was produced by the baseca
 </tbody>
 </table>
 </div>
+<h2 id="bedrmod-output"><a class="header" href="#bedrmod-output">bedRMod output</a></h2>
+<blockquote class="blockquote-tag blockquote-tag-important">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>
+<p>Changes for v0.6.1</p>
+</blockquote>
+<p>The bedRMod specification includes multiple header lines which all start with the <code>#</code> character.
+Enabling this output can be done by passing <code>--bedrmod</code> on the command line, keep in mind that this flag requires <code>--modified-bases</code> and <code>--ref</code>.
+Although this output specification is intended for direct RNA base modifications, some of the header fields may be generally useful.
+The output table below the header is the same with the exception that column 10 (N<sub>valid_cov</sub>), is substituted with total coverage.
+Total coverage is calculated as N<sub>valid_cov</sub> + N<sub>fail</sub>.
+The <code>score</code> column remains the same: N<sub>valid_cov</sub>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>column</th><th>name</th><th>description</th><th>type</th></tr>
+</thead>
+<tbody>
+<tr><td>10</td><td>Total coverage</td><td>N<sub>valid_cov</sub> + N<sub>fail</sub></td><td>int</td></tr>
+</tbody>
+</table>
+</div>
+<p>More details about bedRMod can be found <a href="https://dieterich-lab.github.io/euf-specs/bedRModv2.pdf">here</a>.</p>
 <h2 id="performance-considerations"><a class="header" href="#performance-considerations">Performance considerations</a></h2>
 <blockquote class="blockquote-tag blockquote-tag-important">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>

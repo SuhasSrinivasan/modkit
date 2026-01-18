@@ -39,7 +39,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-837351bc.js";
+            window.path_to_searchindex_js = "searchindex-e21d7306.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-2cf11e43.js"></script>
@@ -225,7 +225,7 @@ Only <strong>primary alignments</strong> are used in generating the table, it is
 <h2 id="recommended-usage"><a class="header" href="#recommended-usage">Recommended usage</a></h2>
 <blockquote class="blockquote-tag blockquote-tag-important">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>
-<p>Changes for v0.6.0</p>
+<p>Changes for v0.6.0+</p>
 </blockquote>
 <p>For best performance use the <code>--modified-bases</code> option with the base modifications you intend to analyze.</p>
 <p>For example:</p>
@@ -243,8 +243,8 @@ Only <strong>primary alignments</strong> are used in generating the table, it is
 </blockquote>
 <p>Passing <code>--modified-bases</code> not required, but directs Modkit to use optimized routines which will lead to better efficiency.
 This option <em>does</em> require a FASTA reference, and will only emit bedmethyl records for base modifications to the primary sequence base in the reference.
-For example, a command with the option <code>--modified-bases 5mC 5hmC 6mA</code> will <em>not</em> have 6mA records on genomic Cytosine locations where a read has a C&gt;A mismatch nor 5mC/5hmC records at genomic Adenine locations.
-For more details on how this option changes results from previous versions see <a href="#migrating-to-modkit-v060-pileup">migrating to v0.6.0</a>.</p>
+For example, a command with the option <code>--modified-bases 5mC 5hmC 6mA</code> will <em>not</em> have 6mA records on reference Cytosine locations where a read has a C&gt;A mismatch nor 5mC/5hmC records at reference Adenine locations.
+For more details on how this option changes results from previous versions see <a href="#migrating-to-modkit-v060-pileup">migrating to v0.6.0+</a>.</p>
 <p>A subset of the base modifications present in the modBAM can specified
 For example, passing the option <code>--modified-bases 5mC</code> when the modBAM contains 5mC and 5hmC calls will only produce 5mC records.</p>
 <blockquote class="blockquote-tag blockquote-tag-note">
@@ -259,6 +259,10 @@ For example, a to make a pileup for a modBAM with direct RNA reads you may use: 
 <blockquote class="blockquote-tag blockquote-tag-tip">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"></path></svg>Tip</p>
 <p>If you don’t know which modified bases are present in your modBAM run: <code>modkit modbam check-tags $bam --head 100</code>.</p>
+</blockquote>
+<blockquote class="blockquote-tag blockquote-tag-important">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>
+<p>If you have a modBAM with very high sequencing depth (&gt;60,000X) use the <code>--high-depth</code> argument. See <a href="#current-limitations">limitations</a> for details.</p>
 </blockquote>
 <h3 id="running-without-a-reference"><a class="header" href="#running-without-a-reference">Running without a reference</a></h3>
 <p>A reference and <code>--modified-bases</code> is not required, for example:</p>
@@ -385,6 +389,28 @@ CG-&gt;CH substitution such that no modification call was produced by the baseca
 </tbody>
 </table>
 </div>
+<h2 id="bedrmod-output"><a class="header" href="#bedrmod-output">bedRMod output</a></h2>
+<blockquote class="blockquote-tag blockquote-tag-important">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>
+<p>Changes for v0.6.1</p>
+</blockquote>
+<p>The bedRMod specification includes multiple header lines which all start with the <code>#</code> character.
+Enabling this output can be done by passing <code>--bedrmod</code> on the command line, keep in mind that this flag requires <code>--modified-bases</code> and <code>--ref</code>.
+Although this output specification is intended for direct RNA base modifications, some of the header fields may be generally useful.
+The output table below the header is the same with the exception that column 10 (N<sub>valid_cov</sub>), is substituted with total coverage.
+Total coverage is calculated as N<sub>valid_cov</sub> + N<sub>fail</sub>.
+The <code>score</code> column remains the same: N<sub>valid_cov</sub>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>column</th><th>name</th><th>description</th><th>type</th></tr>
+</thead>
+<tbody>
+<tr><td>10</td><td>Total coverage</td><td>N<sub>valid_cov</sub> + N<sub>fail</sub></td><td>int</td></tr>
+</tbody>
+</table>
+</div>
+<p>More details about bedRMod can be found <a href="https://dieterich-lab.github.io/euf-specs/bedRModv2.pdf">here</a>.</p>
 <h2 id="performance-considerations"><a class="header" href="#performance-considerations">Performance considerations</a></h2>
 <blockquote class="blockquote-tag blockquote-tag-important">
 <p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>
@@ -394,9 +420,20 @@ CG-&gt;CH substitution such that no modification call was produced by the baseca
 As a result, fewer threads are often required to get high throughput.
 For example, increasing threads beyond 8 a 40X human genome BAM will often not yield much benefit.</p>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="migrating-to-modkit-v060-pileup"><a class="header" href="#migrating-to-modkit-v060-pileup">Migrating to Modkit v0.6.0 <code>pileup</code>.</a></h1>
-<p>Addition of <code>--modified-bases</code> is the biggest change in Modkit v0.6.0.
-This option is roughly equivalent to using <code>--motif C 0</code> or <code>--motif A 0</code> to capture base modification calls only a reference bases for which you are interested in their modification status.</p>
+<h1 id="migrating-to-modkit-v060-pileup"><a class="header" href="#migrating-to-modkit-v060-pileup">Migrating to Modkit v0.6.0+ <code>pileup</code>.</a></h1>
+<p>Addition of <code>--modified-bases</code> is the biggest change in Modkit v0.6.0+.
+The option <code>--modified-bases 5mC 5hmC</code> or <code>--modified-bases 6mA</code> is roughly equivalent to using <code>--motif C 0</code> or <code>--motif A 0</code>, respectively, to capture base modification calls only a reference bases for which you are interested in their modification status.
+Base modifications at multiple primary bases can be emitted by adding more options to the command line, such as <code>--modified-bases 5mC 5hmC 6mA</code>.</p>
+<h2 id="removal-of---preset-traditional"><a class="header" href="#removal-of---preset-traditional">Removal of <code>--preset traditional</code></a></h2>
+<p>Modkit versions v0.6.0 and v0.6.1 do not have the <code>--preset traditional</code> option.
+To produce output that is comparable to technologies where 5hmC will be reported as 5mC using best practices provide the following options:</p>
+<pre><code class="language-bash">$ modkit pileup $bam $bed --ref $ref
+  --modified-bases 5mC 5hmC \ # or --modified-bases C
+  --combine-mods \
+  --cpg \
+  --combine-strands
+</code></pre>
+<p>Keep in mind that this output is not exactly equivalent to what <code>--preset traditional</code> would produce previously, see point (1) below for more details.</p>
 <h2 id="changes-to-pileup-algorithm"><a class="header" href="#changes-to-pileup-algorithm">Changes to pileup algorithm</a></h2>
 <ol>
 <li><code>--ignore</code> option has been removed. This option was often a source of confusion and has been removed in favor of the following alternatives:</li>
@@ -436,6 +473,7 @@ The new workflow is to run with a single motif and <code>--combine-strands</code
 Modkit v0.6.0 is substantially quicker and lighter on resource requirements such that running multiple times will likely be quicker than the older versions.</li>
 <li><code>--invert-edge-filter</code> removed.
 This option is still available in <code>modkit modbam adjust-mods</code>.</li>
+<li>In Modkit versions v0.6.0 and v0.6.1 <code>pileup</code> will saturate depth at 65,535 (maximum for a unsigned 16-bit integer). If your modBAM has a depth greater than this value, it is recommended to use the <code>--high-depth</code> flag so that 65,535 reads will be used at each genomic position. To achieve greater depth, divide the modBAM into subsets with depth &lt;= 65,535, run <code>pileup</code> on each, then <code>modbam merge</code>. This limitation will be removed in the future when it can be proven not to have any performance or resource regression.</li>
 </ol>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="make-hemi-methylation-bedmethyl-tables-with-pileup-hemi"><a class="header" href="#make-hemi-methylation-bedmethyl-tables-with-pileup-hemi">Make hemi-methylation bedMethyl tables with <code>pileup-hemi</code></a></h1>
@@ -922,11 +960,15 @@ Using this option will add two columns to the above tables:</p>
 <tr><th>name</th><th>description</th><th>type</th></tr>
 </thead>
 <tbody>
-<tr><td>status</td><td>equal, Subset, Superset, or Disjoint describes the relationship of the discovered motif to the known motif</td><td>str</td></tr>
+<tr><td>status</td><td>equal, subset, superset, intersect, or disjoint describes the relationship of the discovered motif to the known motif, more details below</td><td>str</td></tr>
 <tr><td>closest_known_motif</td><td>of all motifs specified with <code>--known-motif</code> the one that is most similar to the discovered motif</td><td>str</td></tr>
 </tbody>
 </table>
 </div>
+<p>The <code>status</code> column is the relationship of the set of sequences described by the motifs.
+Say you have two motifs A and B they represent a set of sequences \(\mathbf{A}\) and \(\mathbf{B}\) .
+For example, the motif <code>[a]</code> represents all sequences with at least one A primary base, whereas the set of sequences represented by G[a]TC is only {GATC}.
+The status fills in the blank in the statement: \(\mathbf{A}\) \(?\) \(\mathbf{B}\).</p>
 <p>If any of the known motifs are not found during the search process an additional table is also emitted in machine- and human-readable versions.</p>
 <h3 id="machine-readable-table-1"><a class="header" href="#machine-readable-table-1">Machine-readable table</a></h3>
 <div class="table-wrapper">
@@ -2034,7 +2076,11 @@ Options:
           should be used
 
       --modified-bases &lt;MODIFIED_BASES&gt;...
-          
+          Specify which modified bases to tablulate counts for. These can be the
+          "long name" such as '5mC', '6mA' (or 'm6A' for RNA), or 'inosine'. You
+          can also pass &lt;primary_base&gt;:&lt;mod_code&gt;, such as 'C:m'. Finally, when
+          running with --combine-mods the reference base can be passed alone,
+          such as 'C' or 'A'
 
   -h, --help
           Print help (see a summary with '-h')
@@ -2043,14 +2089,11 @@ Output Options:
       --bgzf
           Output bgzf-compressed bedmethyl files suitable for Tabix-indexing
 
-      --mixed-delim
+      --header
           Output bedMethyl where the delimiter of columns past column 10 are
           space-delimited instead of tab-delimited. This option can be useful
           for some browsers and parsers that don't expect the extra columns of
-          the bedMethyl format
-
-      --header
-          Output a header with the bedMethyl
+          the bedMethyl format. Output a header with the bedMethyl
 
       --prefix &lt;PREFIX&gt;
           Prefix to prepend on phased output file names. Without this option the
@@ -2063,6 +2106,10 @@ Output Options:
           compressed). hp1.bedmethyl and hp2.bedmethyl contain counts for
           records with HP=1 and HP=2 tags, respectively. combined.bedmethyl
           contains counts for all modBAM records
+
+      --bedrmod
+          Output BedRModV2 header counts based on V2 Specification. Details can
+          be found at https://dieterich-lab.github.io/euf-specs/bedRModv2.pdf
 
 Compute Options:
       --bgzf-threads &lt;BGZF_THREADS&gt;
@@ -2088,6 +2135,16 @@ Compute Options:
       --queue-size &lt;QUEUE_SIZE&gt;
           Size of queue for writing records, default will be the number of
           threads
+
+      --max-depth &lt;MAX_DEPTH&gt;
+          Maximum number of reads to use whilest tabulating counts at a given
+          position
+          
+          [default: 8000]
+
+      --high-depth
+          Flag to indicate that modBAM has exceptionally high depth (&gt;65,000X)
+          and should be downsampled during pileup
 
 Logging Options:
       --log-filepath &lt;LOG_FILEPATH&gt;
@@ -2226,6 +2283,58 @@ Modified Base Options:
           When performing motif analysis (such as CpG), sum the counts from the
           positive and negative strands into the counts for the positive strand
           position
+
+BedRMod Options:
+      --organism &lt;ORGANISM&gt;
+          NCBI Taxonomic identifier, details at:
+          https://doi.org/10.1093/database/baaa062
+          
+          [default: unknown]
+
+      --modification-type &lt;MODIFICATION_TYPE&gt;
+          A valid RNA type
+          
+          [default: RNA]
+
+      --assembly &lt;ASSEMBLY&gt;
+          Genome assembly
+          
+          [default: unknown]
+
+      --annotation-source &lt;ANNOTATION_SOURCE&gt;
+          Annotation source
+          
+          [default: unknown]
+
+      --annotation-version &lt;ANNOTATION_VERSION&gt;
+          Annotation version
+          
+          [default: unknown]
+
+      --sequencing-platform &lt;SEQUENCING_PLATFORM&gt;
+          Sequencing platform
+          
+          [default: ont]
+
+      --basecalling &lt;BASECALLING&gt;
+          Basecalling model, override model set in BAM header
+
+      --bioinformatics-workflow &lt;BIOINFORMATICS_WORKFLOW&gt;
+          Link to bioinformatics workflow; program name, version, and/or call;
+          information relevant to score, coverage, or frequency calculation; etc
+
+      --experiment &lt;EXPERIMENT&gt;
+          Information about or link to experimental protocol and design
+
+      --external-source &lt;EXTERNAL_SOURCE&gt;
+          Databank:ID of data
+
+      --modomics-code &lt;MODOMICS_CODE&gt; &lt;MODOMICS_CODE&gt; &lt;MODOMICS_CODE&gt;
+          User-specified code, format: &lt;Code&gt; &lt;MODOMICS Short Name&gt; &lt;Primary
+          Base&gt;. &lt;Code&gt; is the base modification code described in the SAMtags
+          or a numeric ChEBI code present in the BAM file. For example 'a m6A A'
+          would be for &lt;Code&gt; 'a', &lt;MODOMICS Short Name&gt; m6A, and &lt;Primary Base&gt;
+          A
 </code></pre>
 <h2 id="adjust-mods"><a class="header" href="#adjust-mods">adjust-mods</a></h2>
 <pre><code class="language-text">Performs various operations on BAM files containing base modification
@@ -5407,6 +5516,7 @@ The <a href="#likelihood-ratio-scoring-details">likelihood ratio</a> test <em>do
 <li>The MAP-based p-value is not available when performing DMR on regions.
 This is because there is potentially large variability in the number of modified bases and coverage over regions.
 This variability translates into varying degrees of statistical power and makes comparisons difficult to interpret.</li>
+<li>In Modkit versions v0.6.0 and v0.6.1 <code>pileup</code> will saturate depth at 65,535 (maximum for a unsigned 16-bit integer). If your modBAM has a depth greater than this value, it is recommended to use the <code>--high-depth</code> flag so that 65,535 reads will be used at each genomic position. To achieve greater depth, divide the modBAM into subsets with depth &lt;= 65,535, run <code>pileup</code> on each, then <code>modbam merge</code>. This limitation will be removed in the future when it can be proven not to have any performance or resource regression.</li>
 </ol>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="performance-considerations-1"><a class="header" href="#performance-considerations-1">Performance considerations</a></h1>

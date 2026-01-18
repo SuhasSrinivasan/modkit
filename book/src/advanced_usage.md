@@ -73,7 +73,11 @@ Options:
           should be used
 
       --modified-bases <MODIFIED_BASES>...
-          
+          Specify which modified bases to tablulate counts for. These can be the
+          "long name" such as '5mC', '6mA' (or 'm6A' for RNA), or 'inosine'. You
+          can also pass <primary_base>:<mod_code>, such as 'C:m'. Finally, when
+          running with --combine-mods the reference base can be passed alone,
+          such as 'C' or 'A'
 
   -h, --help
           Print help (see a summary with '-h')
@@ -82,14 +86,11 @@ Output Options:
       --bgzf
           Output bgzf-compressed bedmethyl files suitable for Tabix-indexing
 
-      --mixed-delim
+      --header
           Output bedMethyl where the delimiter of columns past column 10 are
           space-delimited instead of tab-delimited. This option can be useful
           for some browsers and parsers that don't expect the extra columns of
-          the bedMethyl format
-
-      --header
-          Output a header with the bedMethyl
+          the bedMethyl format. Output a header with the bedMethyl
 
       --prefix <PREFIX>
           Prefix to prepend on phased output file names. Without this option the
@@ -102,6 +103,10 @@ Output Options:
           compressed). hp1.bedmethyl and hp2.bedmethyl contain counts for
           records with HP=1 and HP=2 tags, respectively. combined.bedmethyl
           contains counts for all modBAM records
+
+      --bedrmod
+          Output BedRModV2 header counts based on V2 Specification. Details can
+          be found at https://dieterich-lab.github.io/euf-specs/bedRModv2.pdf
 
 Compute Options:
       --bgzf-threads <BGZF_THREADS>
@@ -127,6 +132,16 @@ Compute Options:
       --queue-size <QUEUE_SIZE>
           Size of queue for writing records, default will be the number of
           threads
+
+      --max-depth <MAX_DEPTH>
+          Maximum number of reads to use whilest tabulating counts at a given
+          position
+          
+          [default: 8000]
+
+      --high-depth
+          Flag to indicate that modBAM has exceptionally high depth (>65,000X)
+          and should be downsampled during pileup
 
 Logging Options:
       --log-filepath <LOG_FILEPATH>
@@ -265,6 +280,58 @@ Modified Base Options:
           When performing motif analysis (such as CpG), sum the counts from the
           positive and negative strands into the counts for the positive strand
           position
+
+BedRMod Options:
+      --organism <ORGANISM>
+          NCBI Taxonomic identifier, details at:
+          https://doi.org/10.1093/database/baaa062
+          
+          [default: unknown]
+
+      --modification-type <MODIFICATION_TYPE>
+          A valid RNA type
+          
+          [default: RNA]
+
+      --assembly <ASSEMBLY>
+          Genome assembly
+          
+          [default: unknown]
+
+      --annotation-source <ANNOTATION_SOURCE>
+          Annotation source
+          
+          [default: unknown]
+
+      --annotation-version <ANNOTATION_VERSION>
+          Annotation version
+          
+          [default: unknown]
+
+      --sequencing-platform <SEQUENCING_PLATFORM>
+          Sequencing platform
+          
+          [default: ont]
+
+      --basecalling <BASECALLING>
+          Basecalling model, override model set in BAM header
+
+      --bioinformatics-workflow <BIOINFORMATICS_WORKFLOW>
+          Link to bioinformatics workflow; program name, version, and/or call;
+          information relevant to score, coverage, or frequency calculation; etc
+
+      --experiment <EXPERIMENT>
+          Information about or link to experimental protocol and design
+
+      --external-source <EXTERNAL_SOURCE>
+          Databank:ID of data
+
+      --modomics-code <MODOMICS_CODE> <MODOMICS_CODE> <MODOMICS_CODE>
+          User-specified code, format: <Code> <MODOMICS Short Name> <Primary
+          Base>. <Code> is the base modification code described in the SAMtags
+          or a numeric ChEBI code present in the BAM file. For example 'a m6A A'
+          would be for <Code> 'a', <MODOMICS Short Name> m6A, and <Primary Base>
+          A
 ```
 
 ## adjust-mods

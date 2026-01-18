@@ -38,7 +38,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-837351bc.js";
+            window.path_to_searchindex_js = "searchindex-e21d7306.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-2cf11e43.js"></script>
@@ -240,11 +240,15 @@ Using this option will add two columns to the above tables:</p>
 <tr><th>name</th><th>description</th><th>type</th></tr>
 </thead>
 <tbody>
-<tr><td>status</td><td>equal, Subset, Superset, or Disjoint describes the relationship of the discovered motif to the known motif</td><td>str</td></tr>
+<tr><td>status</td><td>equal, subset, superset, intersect, or disjoint describes the relationship of the discovered motif to the known motif, more details below</td><td>str</td></tr>
 <tr><td>closest_known_motif</td><td>of all motifs specified with <code>--known-motif</code> the one that is most similar to the discovered motif</td><td>str</td></tr>
 </tbody>
 </table>
 </div>
+<p>The <code>status</code> column is the relationship of the set of sequences described by the motifs.
+Say you have two motifs A and B they represent a set of sequences \(\mathbf{A}\) and \(\mathbf{B}\) .
+For example, the motif <code>[a]</code> represents all sequences with at least one A primary base, whereas the set of sequences represented by G[a]TC is only {GATC}.
+The status fills in the blank in the statement: \(\mathbf{A}\) \(?\) \(\mathbf{B}\).</p>
 <p>If any of the known motifs are not found during the search process an additional table is also emitted in machine- and human-readable versions.</p>
 <h3 id="machine-readable-table-1"><a class="header" href="#machine-readable-table-1">Machine-readable table</a></h3>
 <div class="table-wrapper">

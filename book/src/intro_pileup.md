@@ -29,8 +29,8 @@ modkit pileup \
 
 Passing `--modified-bases` not required, but directs Modkit to use optimized routines which will lead to better efficiency.
 This option _does_ require a FASTA reference, and will only emit bedmethyl records for base modifications to the primary sequence base in the reference.
-For example, a command with the option `--modified-bases 5mC 5hmC 6mA` will _not_ have 6mA records on genomic Cytosine locations where a read has a C>A mismatch nor 5mC/5hmC records at genomic Adenine locations.
-For more details on how this option changes results from previous versions see [migrating to v0.6.0](./migrating_060.md).
+For example, a command with the option `--modified-bases 5mC 5hmC 6mA` will _not_ have 6mA records on reference Cytosine locations where a read has a C>A mismatch nor 5mC/5hmC records at reference Adenine locations.
+For more details on how this option changes results from previous versions see [migrating to v0.6.0+](./migrating_060.md).
 
 A subset of the base modifications present in the modBAM can specified
 For example, passing the option `--modified-bases 5mC` when the modBAM contains 5mC and 5hmC calls will only produce 5mC records.
@@ -203,6 +203,25 @@ CG->CH substitution such that no modification call was produced by the basecalle
 | 16     | N<sub>fail</sub>             | see definitions above                                                           | int   |
 | 17     | N<sub>diff</sub>             | see definitions above                                                           | int   |
 | 18     | N<sub>nocall</sub>           | see definitions above                                                           | int   |
+
+## bedRMod output
+
+> [!IMPORTANT]
+> Changes for v0.6.1
+
+The bedRMod specification includes multiple header lines which all start with the `#` character.
+Enabling this output can be done by passing `--bedrmod` on the command line, keep in mind that this flag requires `--modified-bases` and `--ref`.
+Although this output specification is intended for direct RNA base modifications, some of the header fields may be generally useful.
+The output table below the header is the same with the exception that column 10 (N<sub>valid_cov</sub>), is substituted with total coverage.
+Total coverage is calculated as N<sub>valid_cov</sub> + N<sub>fail</sub>.
+The `score` column remains the same: N<sub>valid_cov</sub>.
+
+| column | name           | description                              | type |
+|--------|----------------|------------------------------------------|------|
+| 10     | Total coverage | N<sub>valid_cov</sub> + N<sub>fail</sub> | int  |
+
+More details about bedRMod can be found [here](https://dieterich-lab.github.io/euf-specs/bedRModv2.pdf).
+
 
 ## Performance considerations 
 > [!IMPORTANT]

@@ -1,7 +1,22 @@
-# Migrating to Modkit v0.6.0 `pileup`.
+# Migrating to Modkit v0.6.0+ `pileup`.
 
-Addition of `--modified-bases` is the biggest change in Modkit v0.6.0.
-This option is roughly equivalent to using `--motif C 0` or `--motif A 0` to capture base modification calls only a reference bases for which you are interested in their modification status.
+Addition of `--modified-bases` is the biggest change in Modkit v0.6.0+.
+The option `--modified-bases 5mC 5hmC` or `--modified-bases 6mA` is roughly equivalent to using `--motif C 0` or `--motif A 0`, respectively, to capture base modification calls only a reference bases for which you are interested in their modification status.
+Base modifications at multiple primary bases can be emitted by adding more options to the command line, such as `--modified-bases 5mC 5hmC 6mA`.
+
+## Removal of `--preset traditional`
+Modkit versions v0.6.0 and v0.6.1 do not have the `--preset traditional` option.
+To produce output that is comparable to technologies where 5hmC will be reported as 5mC using best practices provide the following options:
+
+```bash
+$ modkit pileup $bam $bed --ref $ref
+  --modified-bases 5mC 5hmC \ # or --modified-bases C
+  --combine-mods \
+  --cpg \
+  --combine-strands
+```
+
+Keep in mind that this output is not exactly equivalent to what `--preset traditional` would produce previously, see point (1) below for more details.
 
 ## Changes to pileup algorithm
 
@@ -39,3 +54,4 @@ If you have a modBAM with **very high** depth and you don't want to tabulate cou
   Modkit v0.6.0 is substantially quicker and lighter on resource requirements such that running multiple times will likely be quicker than the older versions.
 1. `--invert-edge-filter` removed.
   This option is still available in `modkit modbam adjust-mods`.
+1. In Modkit versions v0.6.0 and v0.6.1 `pileup` will saturate depth at 65,535 (maximum for a unsigned 16-bit integer). If your modBAM has a depth greater than this value, it is recommended to use the `--high-depth` flag so that 65,535 reads will be used at each genomic position. To achieve greater depth, divide the modBAM into subsets with depth <= 65,535, run `pileup` on each, then `modbam merge`. This limitation will be removed in the future when it can be proven not to have any performance or resource regression.
