@@ -39,6 +39,9 @@ impl<R: BufRead> BedMethylStream<R> {
             if b == 0 {
                 break;
             }
+            if buf.trim_start().starts_with('#') {
+                continue;
+            }
             let bm_record = BedMethylLine::parse(&buf)?;
             let keep = mod_codes.contains(&bm_record.raw_mod_code);
             if keep {

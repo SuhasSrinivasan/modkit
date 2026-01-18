@@ -17,7 +17,7 @@ The provided packages should be used where possible. We understand that some use
 ```bash
 git clone https://github.com/nanoporetech/modkit.git
 cd modkit
-cargo install --path .
+cargo install --path modkit
 # or
 cargo install --git https://github.com/nanoporetech/modkit.git
 ```
