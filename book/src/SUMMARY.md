@@ -2,7 +2,7 @@
 
 - [Quick Start guides](./quick_start.md)
     - [Constructing bedMethyl tables](./intro_pileup.md)
-        - [Migrating to v0.6.0](./migrating_060.md)
+        - [Migrating to v0.6.0+](./migrating_060.md)
     - [Make hemi-methylation bedMethyl tables](./intro_pileup_hemi.md)
     - [Updating and adjusting MM tags](./intro_adjust.md)
     - [Inspecting base modification probabilities](./intro_sample_probs.md)
