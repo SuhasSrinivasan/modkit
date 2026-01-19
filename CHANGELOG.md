@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.6.1]
+### Fixes
+- [pileup] Fix combine strands when falling back to 'generic workers' fixes #545
+- [pileup] Use bgzf compression when falling back to 'general workers', fixes #556
+- [pileup] Fix bug in --phased when only one modification is requested fixes #552
+- [pileup] Only emit 5hmC or Inosine records when these are the only base modifications requested, fixes #555
+- [pileup] Use default threshold for all bases without specific threshold, fixes #564
+- [pileup] Saturating add at high depth and add `--high-depth` flag, fixes #547
+- [adjust] Actually add CG 0 when --cpg flag is passed, fixes #502
+- [bedmethyl, tobigwig] Allow header in bedmethyl input thanks @WardDeb
+- [motif, search] Change comparison logic so that it compares the sequence set represented by the motifs, fixes #553
+### Adds
+- [pileup] Add `--bedrmod` flag to output [bedRMod](https://dieterich-lab.github.io/euf-specs/bedRModv2.pdf) headers
+
+
 ## [v0.6.0]
 ### Changes
 - [pileup] refactor pileup to increase efficiency. See migration guide and limitations for details.
