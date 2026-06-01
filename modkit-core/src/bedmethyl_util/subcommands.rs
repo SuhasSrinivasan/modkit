@@ -64,6 +64,28 @@ impl EntryBedMethyl {
     }
 }
 
+/// Value of `--min-samples`: either an explicit count or every input ("all").
+#[derive(Clone, Debug)]
+enum MinSamples {
+    All,
+    AtLeast(usize),
+}
+
+fn parse_min_samples(s: &str) -> Result<MinSamples, String> {
+    if s.eq_ignore_ascii_case("all") {
+        return Ok(MinSamples::All);
+    }
+    // A value of 1 is rejected: it would keep every position (an outer join),
+    // which is the behaviour when the option is omitted, so it does nothing.
+    match s.parse::<usize>() {
+        Ok(n) if n > 1 => Ok(MinSamples::AtLeast(n)),
+        Ok(_) => Err("must be an integer greater than 1, or \"all\"".to_string()),
+        Err(_) => Err(format!(
+            "invalid value '{s}': expected an integer greater than 1 or \"all\""
+        )),
+    }
+}
+
 #[derive(Args)]
 #[command(arg_required_else_help = true)]
 pub struct EntryMergeBedMethyl {
@@ -143,6 +165,18 @@ pub struct EntryMergeBedMethyl {
     #[clap(help_heading = "Compute Options")]
     #[arg(long, default_value_t = 2)]
     io_threads: usize,
+
+    /// Only output a position present in at least this many input bedMethyl
+    /// files. Accepts an integer greater than 1, or "all" to require the
+    /// position in every input (an inner join across replicates).
+    #[clap(help_heading = "Filtering Options")]
+    #[arg(long, value_parser = parse_min_samples)]
+    min_samples: Option<MinSamples>,
+    /// Minimum valid coverage for an input's record to count towards a position,
+    /// for both the --min-samples tally and the summed counts.
+    #[clap(help_heading = "Filtering Options")]
+    #[arg(long)]
+    min_sample_coverage: Option<u64>,
 }
 
 type BedMethylChunk = Vec<BedMethylLine>;
@@ -152,13 +186,18 @@ fn merge_data(
     chrom_coordinates: ChromCoordinates,
     tid_to_name: &FxHashMap<u32, String>,
     io_threads: usize,
+    min_samples: usize,
+    min_sample_coverage: u64,
 ) -> anyhow::Result<BedMethylChunk> {
     type Key = (u64, ModCodeRepr, StrandRule);
     // this is safe because of how we constructed this
     let contig = tid_to_name.get(&chrom_coordinates.chrom_tid).unwrap();
     let range = (chrom_coordinates.start_pos as u64)
         ..(chrom_coordinates.end_pos as u64);
-    let mut merged_data = FxHashMap::<Key, BedMethylLine>::default();
+    // value is the merged record plus a tally of how many inputs contributed to
+    // it (each input has at most one record per key), used for the --min-samples
+    // (inner-join) filter below.
+    let mut merged_data = FxHashMap::<Key, (BedMethylLine, usize)>::default();
 
     // rationale:
     // iterate over every possible contig
@@ -173,10 +212,16 @@ fn merge_data(
         for line in lines {
             let line = line?;
 
+            // an input only contributes to a position when its record has at
+            // least the requested valid coverage
+            if line.valid_coverage < min_sample_coverage {
+                continue;
+            }
+
             merged_data
                 .entry((line.start(), line.raw_mod_code, line.strand))
                 // modify the methyl data if an entry is found
-                .and_modify(|methyl| {
+                .and_modify(|(methyl, n_samples)| {
                     methyl.count_methylated += line.count_methylated;
                     methyl.valid_coverage += line.valid_coverage;
                     methyl.count_canonical += line.count_canonical;
@@ -185,14 +230,18 @@ fn merge_data(
                     methyl.count_fail += line.count_fail;
                     methyl.count_diff += line.count_diff;
                     methyl.count_nocall += line.count_nocall;
+                    *n_samples += 1;
                 })
-                .or_insert(line);
+                .or_insert((line, 1));
         }
     }
 
-    // get just the bedmethyllines for writing
+    // get just the bedmethyllines for writing, keeping only positions present in
+    // at least --min-samples inputs (default 1 == outer join, unchanged)
     let merged_data = merged_data
         .into_values()
+        .filter(|(_, n_samples)| *n_samples >= min_samples)
+        .map(|(methyl, _)| methyl)
         .sorted_by(|a, b| {
             debug_assert_eq!(a.chrom, b.chrom);
             match a.start().cmp(&b.start()) {
@@ -211,6 +260,23 @@ fn merge_data(
 impl EntryMergeBedMethyl {
     pub fn run(&self) -> anyhow::Result<()> {
         let _handle = init_logging(self.log_filepath.as_ref());
+
+        // Resolve --min-samples ("all" -> number of inputs; omitted -> 1 = outer join).
+        let n_inputs = self.in_bedmethyl.len();
+        let min_samples: usize = match &self.min_samples {
+            None => 1,
+            Some(MinSamples::All) => n_inputs,
+            Some(MinSamples::AtLeast(n)) => *n,
+        };
+        if min_samples > n_inputs {
+            bail!(
+                "--min-samples ({}) is greater than the number of input \
+                 bedMethyl files ({})",
+                min_samples,
+                n_inputs
+            );
+        }
+        let min_sample_coverage: u64 = self.min_sample_coverage.unwrap_or(0);
 
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(self.threads)
@@ -343,6 +409,8 @@ impl EntryMergeBedMethyl {
                                     chrom_coordinates,
                                     &tid_to_name,
                                     io_threads,
+                                    min_samples,
+                                    min_sample_coverage,
                                 )
                             })
                         })

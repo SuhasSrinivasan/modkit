@@ -32,6 +32,39 @@ chr1    249250621
 chr2    243199373
 ```
 
+## Requiring positions in multiple samples (inner join)
+
+By default `merge` performs an outer join: a position is kept if it appears in
+any input. To instead keep only positions shared across inputs, use
+`--min-samples`, which outputs a position only when it appears in at least that
+many input files. Pass `--min-samples all` to require the position in every
+input (an inner join), which is useful for retaining positions that reproduce
+across replicates; `all` avoids hard-coding the input count in scripts.
+
+```bash
+# keep only positions present in all three replicates (inner join)
+modkit bedmethyl merge rep1.bed.gz rep2.bed.gz rep3.bed.gz \
+  -o replicates_inner.bed \
+  -g genome_sizes.tsv \
+  --min-samples all
+```
+
+`--min-sample-coverage` adds a per-input confidence floor: an input only counts
+towards a position (both for the `--min-samples` tally and for the summed counts)
+when that input's record has at least the given valid coverage. For example, to
+require a position to be covered by at least 5 valid reads in all three
+replicates:
+
+```bash
+modkit bedmethyl merge rep1.bed.gz rep2.bed.gz rep3.bed.gz \
+  -o replicates_inner_cov5.bed \
+  -g genome_sizes.tsv \
+  --min-samples all \
+  --min-sample-coverage 5
+```
+
+Omitting both options performs an outer-join.
+
 # Convert bedMethyl to bigWig
 
 You may want to convert a bedMethyl to bigWig for easier visualization on a genome browser. 

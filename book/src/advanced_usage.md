@@ -3035,6 +3035,16 @@ Compute Options:
 Logging Options:
       --log-filepath <LOG_FILEPATH>
           Specify a file to write debug logs to
+
+Filtering Options:
+      --min-samples <MIN_SAMPLES>
+          Only output a position present in at least this many input bedMethyl
+          files. Accepts an integer greater than 1, or "all" to require the
+          position in every input (an inner join across replicates)
+
+      --min-sample-coverage <MIN_SAMPLE_COVERAGE>
+          Minimum valid coverage for an input's record to count towards a
+          position, for both the --min-samples tally and the summed counts
 ```
 
 ## bedmethyl tobigwig
