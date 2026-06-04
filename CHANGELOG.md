@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Adds
   - [bedmethyl] Adds `--min-samples` (an integer or `all`) and `--min-sample-coverage` to `bedmethyl merge` to require a position to be present in (and optionally covered to a minimum valid depth in) multiple inputs, enabling an inner join across replicates. Omitting them preserves the original outer-join behaviour.
+### Fixes
+  - [dmr] `compare-tx-sites`: unmodified (canonical) counts are now summed across isoforms that share a genomic position instead of being overwritten by the last-processed isoform, fixing systematically inflated gene-level modification proportions for multi-isoform genes (#632).
+  - [dmr] `compare-tx-sites` `--full`: fix swapped `cond_a`/`cond_b` columns so each condition's proportions and counts (and the derived `effect_size`/`log2_fold_change`) are labelled correctly (#632).
 
 ## [v0.6.3]
 ### Adds

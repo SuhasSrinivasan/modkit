@@ -2360,12 +2360,16 @@ pub(super) struct GeneDmrScore {
 
 impl GeneDmrScore {
     fn from_score_result(
-        mut res: DirichletMultinomialTestResult,
+        res: DirichletMultinomialTestResult,
         mod_codes: Vec<ModCodeRepr>,
     ) -> Self {
         assert_eq!(res.isoform_counts.len(), 2);
-        let cond_a_counts = res.isoform_counts.pop().unwrap();
-        let cond_b_counts = res.isoform_counts.pop().unwrap();
+        // `run_gene_dmr` builds the test as
+        // `dirichlet_multinomial_lrt(&[pos_counts_a, pos_counts_b], ..)`, so
+        // index 0 is condition A and index 1 is condition B. Index explicitly
+        // rather than `pop()` (which would reverse the order, see #632).
+        let cond_a_counts = res.isoform_counts[0].clone();
+        let cond_b_counts = res.isoform_counts[1].clone();
         let cond_a_proportions =
             scoring::proportions_from_counts(&cond_a_counts, 0f64);
         let cond_b_proportions =
