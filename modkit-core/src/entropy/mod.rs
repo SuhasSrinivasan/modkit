@@ -1713,7 +1713,9 @@ impl DescriptiveStats {
             let median_entropy = if measurements.len() == 1 {
                 measurements[0]
             } else {
-                percentile_linear_interp(measurements, 0.5f32)?
+                let mut sorted_measurements = measurements.to_vec();
+                sorted_measurements.sort_unstable_by(f32::total_cmp);
+                percentile_linear_interp(&sorted_measurements, 0.5f32)?
             };
             // safe because of above check
             let (min_entropy, max_entropy) = match measurements.iter().minmax()
