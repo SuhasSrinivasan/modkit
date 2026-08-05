@@ -6,11 +6,10 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Context};
 use clap::Args;
 use common_macros::hash_set;
-use crossbeam_channel::bounded;
-use indicatif::{MultiProgress, ParallelProgressIterator};
+use crossbeam_channel::Receiver;
+use indicatif::MultiProgress;
 use itertools::Itertools;
 use log::{debug, error, info, warn};
-use rayon::prelude::*;
 use rust_htslib::bam::{self, HeaderView, Read};
 
 use modkit_logging::init_logging;
@@ -24,8 +23,8 @@ use crate::command_utils::{
 };
 use crate::fasta::MotifLocationsLookup;
 use crate::interval_chunks::{
-    ChromCoordinates, ChromCoordinatesFeeder, ReferenceIntervalBatchesFeeder,
-    TotalLength,
+    ChromCoordinates, ChromCoordinatesFeeder, MultiChromCoordinates,
+    ReferenceIntervalBatchesFeeder, TotalLength,
 };
 use crate::mod_bam::{CollapseMethod, EdgeFilter};
 use crate::mod_base_code::{
@@ -49,10 +48,11 @@ use crate::sample_probs::{
     AlignedBaseArgmaxProbs, BaseArgmaxProbs, ExtractProbsWorker,
     ProbsExtractor, RegionMleProbs,
 };
+use crate::threshold_mod_caller::MultipleThresholdModCaller;
 use crate::util::{
     create_out_directory, filter_reference_records, get_master_progress_bar,
-    get_master_progress_bar_fancy, get_subroutine_progress_bar, get_targets,
-    get_ticker, reader_is_bam, reader_is_cram, Region,
+    get_master_progress_bar_fancy, get_targets, get_ticker, reader_is_bam,
+    reader_is_cram, Region,
 };
 use crate::writers::{
     BedMethylWriter, BedMethylWriter2, MultipleMotifBedmethylWriter,
@@ -67,6 +67,78 @@ impl OrderedWorker<ChromCoordinates, ModBasePileup2> for Box<dyn PileupWorker> {
     ) -> anyhow::Result<ModBasePileup2> {
         PileupWorker::process(self.as_mut(), job, buffer)
     }
+}
+
+struct DuplexPileupBatch {
+    pileups: Vec<DuplexModBasePileup>,
+    interval_width: u64,
+}
+
+impl DuplexPileupBatch {
+    fn new_empty() -> Self {
+        Self { pileups: Vec::new(), interval_width: 0 }
+    }
+}
+
+struct DuplexPileupWorker {
+    bam_fp: PathBuf,
+    caller: Arc<MultipleThresholdModCaller>,
+    pileup_options: Arc<PileupNumericOptions>,
+    force_allow: bool,
+    max_depth: u32,
+    motif: MotifInfo,
+    edge_filter: Arc<Option<EdgeFilter>>,
+}
+
+impl OrderedWorker<MultiChromCoordinates, DuplexPileupBatch>
+    for DuplexPileupWorker
+{
+    fn process(
+        &mut self,
+        job: MultiChromCoordinates,
+        mut buffer: DuplexPileupBatch,
+    ) -> anyhow::Result<DuplexPileupBatch> {
+        buffer.interval_width = job.total_length();
+        process_region_duplex_batch(
+            &job,
+            &self.bam_fp,
+            &self.caller,
+            &self.pileup_options,
+            self.force_allow,
+            self.max_depth,
+            self.motif,
+            self.edge_filter.as_ref().as_ref(),
+            &mut buffer.pileups,
+        )?;
+        Ok(buffer)
+    }
+}
+
+fn run_duplex_scheduler<I, W, C>(
+    feeder: I,
+    workers: Vec<W>,
+    empty_buffers: Receiver<DuplexPileupBatch>,
+    output_queue_size: usize,
+    consume: C,
+) -> anyhow::Result<()>
+where
+    I: Iterator<Item = anyhow::Result<Vec<MultiChromCoordinates>>>
+        + Send
+        + 'static,
+    W: OrderedWorker<MultiChromCoordinates, DuplexPileupBatch> + 'static,
+    C: FnMut(DuplexPileupBatch) -> anyhow::Result<()>,
+{
+    let feeder = feeder.flat_map(|result| match result {
+        Ok(batch) => batch.into_iter().map(Ok).collect::<Vec<_>>(),
+        Err(error) => vec![Err(error)],
+    });
+    run_ordered_scheduler(
+        feeder,
+        workers,
+        empty_buffers,
+        output_queue_size,
+        consume,
+    )
 }
 
 #[derive(Args)]
@@ -2125,6 +2197,7 @@ impl DuplexModBamPileup {
                     )
                 })?
             };
+        drop(pool);
 
         if !self.no_filtering {
             for (base, threshold) in threshold_caller.iter_thresholds() {
@@ -2169,7 +2242,6 @@ impl DuplexModBamPileup {
             }
         }
 
-        let (snd, rx) = bounded(self.queue_size);
         let reference_records = if let Some(pf) = position_filter.as_ref() {
             pf.optimize_reference_records(reference_records, self.interval_size)
         } else {
@@ -2183,8 +2255,6 @@ impl DuplexModBamPileup {
             Some(motif_lookup),
             position_filter,
         )?;
-
-        let in_bam_fp = self.in_bam.clone();
 
         let master_progress = MultiProgress::new();
         if self.suppress_progress {
@@ -2203,93 +2273,45 @@ impl DuplexModBamPileup {
 
         let force_allow = self.force_allow_implicit;
         let max_depth = self.max_depth;
+        let caller = Arc::new(threshold_caller);
+        let pileup_options = Arc::new(pileup_options);
+        let edge_filter = Arc::new(edge_filter);
+        let workers = (0..self.threads)
+            .map(|_| DuplexPileupWorker {
+                bam_fp: self.in_bam.clone(),
+                caller: caller.clone(),
+                pileup_options: pileup_options.clone(),
+                force_allow,
+                max_depth,
+                motif: motif_info,
+                edge_filter: edge_filter.clone(),
+            })
+            .collect::<Vec<_>>();
+        let (empties_tx, empties_rx) = crossbeam_channel::unbounded();
+        for _ in 0..(workers.len() * 2) {
+            empties_tx.send(DuplexPileupBatch::new_empty()).unwrap();
+        }
+        let recycle = empties_tx.clone();
 
-        pool.spawn(move || {
-            for multi_chrom_coords in feeder
-                .inspect(|x| match x {
-                    Ok(_) => {},
-                    Err(e) => {
-                        error!("fetching sequence failed, {e}");
-                    }
-                })
-                .filter_map(|r| r.ok()) {
-                let genome_length_in_batch = multi_chrom_coords.iter()
-                    .map(|x| x.total_length())
-                    .sum::<u64>();
-                let n_intervals = multi_chrom_coords.len();
-                let interval_progress = master_progress
-                    .add(get_subroutine_progress_bar(n_intervals));
-
-                interval_progress
-                    .set_message(format!("processing {n_intervals} intervals"));
-                for work_chunk in multi_chrom_coords.chunks(chunk_size) {
-                    let mut result: Vec<anyhow::Result<DuplexModBasePileup>> = vec![];
-                    let chunk_progress = master_progress.add(get_subroutine_progress_bar(work_chunk.len()));
-                    chunk_progress.set_message("chunk progress");
-                    let (res, _) = rayon::join(
-                        || {
-                            work_chunk
-                                .into_par_iter()
-                                .progress_with(chunk_progress)
-                                .map(|multi_chrom_coords| {
-                                    process_region_duplex_batch(
-                                        multi_chrom_coords,
-                                        &in_bam_fp,
-                                        &threshold_caller,
-                                        &pileup_options,
-                                        force_allow,
-                                        max_depth,
-                                        motif_info,
-                                        edge_filter.as_ref(),
-                                    )
-                                })
-                                .flatten()
-                                .collect::<Vec<anyhow::Result<DuplexModBasePileup>>>()
-                        },
-                        || {
-                            result.into_iter().for_each(|mod_base_pileup| {
-                                match snd.send(mod_base_pileup) {
-                                    Ok(_) => {
-                                        interval_progress.inc(1)
-                                    }
-                                    Err(e) => {
-                                        error!("failed to send results, {}", e.to_string())
-                                    },
-                                }
-                            });
-                        },
-                    );
-                    result = res;
-                    result.into_iter().for_each(|pileup| {
-                        match snd.send(pileup) {
-                            Ok(_) => {
-                                interval_progress.inc(1)
-                            }
-                            Err(e) => {
-                                error!("failed to send results, {}", e.to_string())
-                            },
-                        }
-                    });
-                }
-                tid_progress.inc(genome_length_in_batch);
-            }
-            tid_progress.finish_and_clear();
-        });
-
-        for result in rx.into_iter() {
-            match result {
-                Ok(mod_base_pileup) => {
+        run_duplex_scheduler(
+            feeder,
+            workers,
+            empties_rx,
+            self.queue_size,
+            |mut batch| {
+                for mod_base_pileup in batch.pileups.drain(..) {
                     processed_reads
                         .inc(mod_base_pileup.processed_records as u64);
                     skipped_reads.inc(mod_base_pileup.skipped_records as u64);
                     let rows_written = writer.write(mod_base_pileup, &[])?;
                     write_progress.inc(rows_written);
                 }
-                Err(message) => {
-                    debug!("> unexpected error {message}");
-                }
-            }
-        }
+                tid_progress.inc(batch.interval_width);
+                let _ = recycle.send(batch);
+                Ok(())
+            },
+        )?;
+        tid_progress.finish_and_clear();
         let rows_processed = write_progress.position();
         let n_skipped_reads = skipped_reads.position();
         let n_skipped_message = if n_skipped_reads == 0 {
@@ -2306,5 +2328,203 @@ impl DuplexModBamPileup {
              ~{n_processed_reads} reads and skipped {n_skipped_message}."
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod hemi_scheduler_tests {
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
+    use anyhow::{anyhow, bail};
+    use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+
+    use super::{
+        run_duplex_scheduler, DuplexPileupBatch, MultiChromCoordinates,
+        OrderedWorker,
+    };
+    use crate::interval_chunks::{ChromCoordinates, FocusPositions2};
+
+    fn job(id: u32) -> MultiChromCoordinates {
+        MultiChromCoordinates::new(vec![ChromCoordinates::new(
+            0,
+            id,
+            id + 1,
+            FocusPositions2::AllPositions,
+            false,
+        )])
+    }
+
+    fn buffer_pool(
+        count: usize,
+    ) -> (Sender<DuplexPileupBatch>, Receiver<DuplexPileupBatch>) {
+        let (sender, receiver) = unbounded();
+        for _ in 0..count {
+            sender.send(DuplexPileupBatch::new_empty()).unwrap();
+        }
+        (sender, receiver)
+    }
+
+    struct TestFeeder {
+        items: VecDeque<anyhow::Result<Vec<MultiChromCoordinates>>>,
+        drops: Option<Arc<AtomicUsize>>,
+    }
+
+    impl Iterator for TestFeeder {
+        type Item = anyhow::Result<Vec<MultiChromCoordinates>>;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.items.pop_front()
+        }
+    }
+
+    impl Drop for TestFeeder {
+        fn drop(&mut self) {
+            if let Some(drops) = self.drops.as_ref() {
+                drops.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    struct PanicWorker;
+
+    impl OrderedWorker<MultiChromCoordinates, DuplexPileupBatch> for PanicWorker {
+        fn process(
+            &mut self,
+            _job: MultiChromCoordinates,
+            _buffer: DuplexPileupBatch,
+        ) -> anyhow::Result<DuplexPileupBatch> {
+            panic!("scripted hemi worker panic")
+        }
+    }
+
+    struct BlockingErrorWorker {
+        job_two_started: Sender<()>,
+        wait_for_job_two: Receiver<()>,
+        release_job_two: Receiver<()>,
+        failure_ready: Sender<()>,
+        drops: Arc<AtomicUsize>,
+    }
+
+    impl Drop for BlockingErrorWorker {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    impl OrderedWorker<MultiChromCoordinates, DuplexPileupBatch>
+        for BlockingErrorWorker
+    {
+        fn process(
+            &mut self,
+            job: MultiChromCoordinates,
+            buffer: DuplexPileupBatch,
+        ) -> anyhow::Result<DuplexPileupBatch> {
+            match job.0[0].start_pos {
+                0 => {
+                    self.wait_for_job_two
+                        .recv_timeout(Duration::from_secs(1))
+                        .map_err(|_| anyhow!("job 2 never started"))?;
+                    let _ = self.failure_ready.send(());
+                    bail!("scripted hemi worker failure")
+                }
+                2 => {
+                    let _ = self.job_two_started.send(());
+                    self.release_job_two
+                        .recv_timeout(Duration::from_secs(1))
+                        .map_err(|_| anyhow!("job 2 was not released"))?;
+                }
+                _ => {}
+            }
+            Ok(buffer)
+        }
+    }
+
+    #[test]
+    fn hemi_feeder_error_is_propagated() {
+        let feeder = TestFeeder {
+            items: vec![Err(anyhow!("scripted hemi feeder failure"))].into(),
+            drops: None,
+        };
+        let (_empty_sender, empty_buffers) = buffer_pool(2);
+        let error = run_duplex_scheduler(
+            feeder,
+            vec![PanicWorker],
+            empty_buffers,
+            0,
+            |_| Ok(()),
+        )
+        .expect_err("feeder error should fail hemi pileup");
+        assert!(error.to_string().contains("scripted hemi feeder failure"));
+    }
+
+    #[test]
+    fn hemi_worker_panic_is_propagated() {
+        let feeder =
+            TestFeeder { items: vec![Ok(vec![job(0)])].into(), drops: None };
+        let (_empty_sender, empty_buffers) = buffer_pool(2);
+        let error = run_duplex_scheduler(
+            feeder,
+            vec![PanicWorker],
+            empty_buffers,
+            0,
+            |_| Ok(()),
+        )
+        .expect_err("worker panic should fail hemi pileup");
+        assert!(error.to_string().contains("scripted hemi worker panic"));
+    }
+
+    #[test]
+    fn hemi_worker_error_cancels_and_joins_all_threads() {
+        let worker_drops = Arc::new(AtomicUsize::new(0));
+        let feeder_drops = Arc::new(AtomicUsize::new(0));
+        let (job_two_started, wait_for_job_two) = bounded(1);
+        let (release_job_two, job_two_release) = bounded(1);
+        let (failure_ready, wait_for_failure) = bounded(1);
+        let (finished, wait_for_finish) = bounded(1);
+        let worker_drop_probe = worker_drops.clone();
+        let feeder_drop_probe = feeder_drops.clone();
+
+        thread::spawn(move || {
+            let feeder = TestFeeder {
+                items: vec![Ok((0..64).map(job).collect())].into(),
+                drops: Some(feeder_drop_probe),
+            };
+            let workers = (0..2)
+                .map(|_| BlockingErrorWorker {
+                    job_two_started: job_two_started.clone(),
+                    wait_for_job_two: wait_for_job_two.clone(),
+                    release_job_two: job_two_release.clone(),
+                    failure_ready: failure_ready.clone(),
+                    drops: worker_drop_probe.clone(),
+                })
+                .collect();
+            let (empty_sender, empty_buffers) = buffer_pool(4);
+            let result =
+                run_duplex_scheduler(feeder, workers, empty_buffers, 0, |_| {
+                    Ok(())
+                });
+            drop(empty_sender);
+            let _ = finished.send(result);
+        });
+
+        wait_for_failure
+            .recv_timeout(Duration::from_secs(1))
+            .expect("scripted worker failure never became ready");
+        assert!(
+            wait_for_finish.recv_timeout(Duration::from_millis(50)).is_err(),
+            "hemi scheduler returned before joining the blocked worker"
+        );
+        release_job_two.send(()).expect("failed to release blocked worker");
+        let error = wait_for_finish
+            .recv_timeout(Duration::from_secs(1))
+            .expect("hemi scheduler did not finish after cancellation")
+            .expect_err("worker error should fail hemi pileup");
+        assert!(error.to_string().contains("scripted hemi worker failure"));
+        assert_eq!(worker_drops.load(Ordering::SeqCst), 2);
+        assert_eq!(feeder_drops.load(Ordering::SeqCst), 1);
     }
 }

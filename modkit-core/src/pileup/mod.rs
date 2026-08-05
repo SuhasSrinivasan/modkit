@@ -104,11 +104,14 @@ struct PileupIter<'a> {
 }
 
 impl<'a> Iterator for PileupIter<'a> {
-    type Item = StrandPileup;
+    type Item = rust_htslib::errors::Result<StrandPileup>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut pileup: Option<Self::Item> = None;
-        while let Some(Ok(plp)) = self.pileups.next() {
+        loop {
+            let plp = match self.pileups.next()? {
+                Ok(pileup) => pileup,
+                Err(error) => return Some(Err(error)),
+            };
             let off_end = plp.pos() >= self.end_pos;
             if off_end {
                 // we're done
@@ -126,14 +129,16 @@ impl<'a> Iterator for PileupIter<'a> {
                 let bs = &self.focus_positions[st..end];
                 match (bs[0], bs[1]) {
                     (true, _) => {
-                        pileup =
-                            Some(StrandPileup::new(plp, StrandRule::Positive));
-                        break;
+                        return Some(Ok(StrandPileup::new(
+                            plp,
+                            StrandRule::Positive,
+                        )));
                     }
                     (_, true) => {
-                        pileup =
-                            Some(StrandPileup::new(plp, StrandRule::Negative));
-                        break;
+                        return Some(Ok(StrandPileup::new(
+                            plp,
+                            StrandRule::Negative,
+                        )));
                     }
                     _ => {
                         continue;
@@ -141,7 +146,6 @@ impl<'a> Iterator for PileupIter<'a> {
                 }
             }
         }
-        pileup
     }
 }
 

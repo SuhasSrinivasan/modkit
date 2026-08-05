@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use derive_new::new;
 use rust_htslib::bam::{self, FetchDefinition, Read};
 use rustc_hash::FxHashMap;
@@ -215,26 +215,25 @@ pub fn process_region_duplex_batch<T: AsRef<Path> + Copy>(
     max_depth: u32,
     motif: MotifInfo,
     edge_filter: Option<&EdgeFilter>,
-) -> Vec<anyhow::Result<DuplexModBasePileup>> {
-    chromosome_coordintes
-        .0
-        .iter()
-        .map(|chrom_coords| {
-            process_region_duplex(
-                bam_fp,
-                chrom_coords.chrom_tid,
-                chrom_coords.start_pos,
-                chrom_coords.end_pos,
-                caller,
-                pileup_numeric_options,
-                force_allow,
-                max_depth,
-                &chrom_coords.focus_positions,
-                motif,
-                edge_filter,
-            )
-        })
-        .collect()
+    output: &mut Vec<DuplexModBasePileup>,
+) -> anyhow::Result<()> {
+    output.clear();
+    for chrom_coords in &chromosome_coordintes.0 {
+        output.push(process_region_duplex(
+            bam_fp,
+            chrom_coords.chrom_tid,
+            chrom_coords.start_pos,
+            chrom_coords.end_pos,
+            caller,
+            pileup_numeric_options,
+            force_allow,
+            max_depth,
+            &chrom_coords.focus_positions,
+            motif,
+            edge_filter,
+        )?);
+    }
+    Ok(())
 }
 
 fn process_region_duplex<T: AsRef<Path>>(
@@ -286,14 +285,13 @@ fn process_region_duplex<T: AsRef<Path>>(
 
     let pileup_iter = PileupIter::new(hts_pileup, start_pos, end_pos, mask);
 
-    for (pileup, motif) in pileup_iter.filter_map(|pileup| {
-        // let motifs = positions_to_motifs.get(&pileup.bam_pileup.pos())?;
-        // if motifs.len() > 1 {
-        //     debug!("more than 1 motif not supported yet");
-        // };
-        // let (motif, _idx) = &motifs[0];
-        Some((pileup, motif))
-    }) {
+    for pileup in pileup_iter {
+        let pileup = pileup.with_context(|| {
+            format!(
+                "failed to read BAM pileup during hemi pileup at \
+                 {chrom_name}:{start_pos}-{end_pos}"
+            )
+        })?;
         let pos = pileup.bam_pileup.pos();
         let mut feature_vector = DuplexFeatureVector::default();
         let alignment_iter =
