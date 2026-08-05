@@ -2359,6 +2359,54 @@ mod entropy_mod_tests {
     }
 
     #[test]
+    fn odd_region_median_is_independent_of_window_order() {
+        let measurements = vec![0.75, 0.25, 0.5];
+        let stats = DescriptiveStats::new(
+            &measurements,
+            &[8, 2, 5],
+            1,
+            0,
+            &(10..20),
+        )
+        .unwrap();
+
+        assert_eq!(measurements, vec![0.75, 0.25, 0.5]);
+        assert_eq!(stats.mean_entropy, 0.5);
+        assert_eq!(stats.median_entropy, 0.5);
+        assert_eq!(stats.min_entropy, 0.25);
+        assert_eq!(stats.max_entropy, 0.75);
+        assert_eq!(stats.mean_num_reads, 5.0);
+        assert_eq!(stats.min_num_reads, 2);
+        assert_eq!(stats.max_num_reads, 8);
+        assert_eq!(stats.successful_count, 3);
+        assert_eq!(stats.failed_count, 1);
+    }
+
+    #[test]
+    fn even_region_median_interpolates_sorted_window_values() {
+        let measurements = vec![0.75, 0.0, 0.25, 0.5];
+        let stats = DescriptiveStats::new(
+            &measurements,
+            &[8, 2, 4, 6],
+            3,
+            0,
+            &(10..20),
+        )
+        .unwrap();
+
+        assert_eq!(measurements, vec![0.75, 0.0, 0.25, 0.5]);
+        assert_eq!(stats.mean_entropy, 0.375);
+        assert_eq!(stats.median_entropy, 0.375);
+        assert_eq!(stats.min_entropy, 0.0);
+        assert_eq!(stats.max_entropy, 0.75);
+        assert_eq!(stats.mean_num_reads, 5.0);
+        assert_eq!(stats.min_num_reads, 2);
+        assert_eq!(stats.max_num_reads, 8);
+        assert_eq!(stats.successful_count, 4);
+        assert_eq!(stats.failed_count, 3);
+    }
+
+    #[test]
     fn nine_distinct_modification_codes_have_atomic_states() {
         let window = combined_window_with_code_count(9);
         let lookup = window.get_mod_code_lookup();
