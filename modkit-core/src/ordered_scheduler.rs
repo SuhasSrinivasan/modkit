@@ -76,11 +76,12 @@ fn join_stage(label: &str, handle: JoinHandle<()>, failure: &FailureState) {
     }
 }
 
-pub(super) trait OrderedWorker<J, B>: Send {
+pub(crate) trait OrderedWorker<J, B>: Send {
     fn process(&mut self, job: J, buffer: B) -> anyhow::Result<B>;
 }
 
-pub(super) fn run_ordered_scheduler<I, J, B, W, C>(
+pub(crate) fn run_ordered_scheduler<I, J, B, W, C>(
+    stage_name: &'static str,
     feeder: I,
     workers: Vec<W>,
     empty_buffers: Receiver<B>,
@@ -95,7 +96,9 @@ where
     C: FnMut(B) -> anyhow::Result<()>,
 {
     if workers.is_empty() {
-        return Err(anyhow!("pileup scheduler requires at least one worker"));
+        return Err(anyhow!(
+            "{stage_name} scheduler requires at least one worker"
+        ));
     }
 
     let (jobs_tx, jobs_rx) = bounded(workers.len() * 2);
@@ -114,7 +117,7 @@ where
     let source_cancel = cancel_rx.clone();
     let source = std::thread::spawn(move || {
         run_stage(
-            "pileup source",
+            &format!("{stage_name} source"),
             source_failure,
             (feeder, jobs_tx, empty_buffers, source_cancel),
             |resources| {
@@ -152,7 +155,7 @@ where
         let worker_jobs = jobs_rx.clone();
         let worker_results = results_tx.clone();
         worker_handles.push(std::thread::spawn(move || {
-            let label = format!("pileup worker {index}");
+            let label = format!("{stage_name} worker {index}");
             run_stage(
                 &label,
                 worker_failure,
@@ -188,7 +191,7 @@ where
     let aggregator_cancel = cancel_rx;
     let aggregator = std::thread::spawn(move || {
         run_stage(
-            "pileup aggregator",
+            &format!("{stage_name} aggregator"),
             aggregator_failure,
             (results_rx, records_tx, aggregator_cancel),
             |resources| {
@@ -241,14 +244,14 @@ where
                         Ok(Ok(())) => {}
                         Ok(Err(error)) => {
                             failure.report(anyhow!(
-                                "pileup output consumer failed: {error:#}"
+                                "{stage_name} output consumer failed: {error:#}"
                             ));
                             drop(cancel_tx.take());
                             break;
                         }
                         Err(panic) => {
                             failure.report(anyhow!(
-                                "pileup output consumer panicked: {}",
+                                "{stage_name} output consumer panicked: {}",
                                 panic_message(panic)
                             ));
                             drop(cancel_tx.take());
@@ -269,11 +272,11 @@ where
     // Cancellation makes every channel-blocked stage wake before joining.
     drop(cancel_tx.take());
 
-    join_stage("pileup source", source, &failure);
+    join_stage(&format!("{stage_name} source"), source, &failure);
     for (index, worker) in worker_handles.into_iter().enumerate() {
-        join_stage(&format!("pileup worker {index}"), worker, &failure);
+        join_stage(&format!("{stage_name} worker {index}"), worker, &failure);
     }
-    join_stage("pileup aggregator", aggregator, &failure);
+    join_stage(&format!("{stage_name} aggregator"), aggregator, &failure);
 
     match failure.take() {
         Some(error) => Err(error),
@@ -536,6 +539,7 @@ mod tests {
             make_buffer_pool(buffer_count, None);
         let recycle = empty_sender.clone();
         run_ordered_scheduler(
+            "pileup",
             feeder,
             workers,
             empty_buffers,
@@ -597,6 +601,7 @@ mod tests {
                 make_buffer_pool(4, Some(buffer_drop_probe));
             let outcome = catch_unwind(AssertUnwindSafe(|| {
                 run_ordered_scheduler(
+                    "pileup",
                     feeder,
                     workers,
                     empty_buffers,
@@ -662,6 +667,7 @@ mod tests {
             });
             let (_empty_sender, empty_buffers) = unbounded();
             run_ordered_scheduler(
+                "pileup",
                 feeder,
                 Vec::<TestWorker>::new(),
                 empty_buffers,
@@ -703,6 +709,7 @@ mod tests {
             let (empty_sender, empty_buffers) = make_buffer_pool(4, None);
             let recycle = empty_sender.clone();
             run_ordered_scheduler(
+                "pileup",
                 TestFeeder::jobs(0..64),
                 workers,
                 empty_buffers,
@@ -760,6 +767,7 @@ mod tests {
             let (empty_sender, empty_buffers) = unbounded::<TestBuffer>();
             drop(empty_sender);
             run_ordered_scheduler(
+                "pileup",
                 TestFeeder::jobs([0]),
                 vec![TestWorker {
                     behavior: WorkerBehavior::Succeed,
@@ -805,6 +813,7 @@ mod tests {
                 make_buffer_pool(4, Some(buffer_drop_probe));
             let recycle = empty_sender.clone();
             let result = run_ordered_scheduler(
+                "pileup",
                 feeder,
                 workers,
                 empty_buffers,
@@ -864,6 +873,7 @@ mod tests {
             let (empty_sender, empty_buffers) = make_buffer_pool(2, None);
             let recycle = empty_sender.clone();
             let result = run_ordered_scheduler(
+                "pileup",
                 TestFeeder::jobs(0..2),
                 workers,
                 empty_buffers,

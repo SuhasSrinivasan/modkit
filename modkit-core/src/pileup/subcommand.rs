@@ -32,6 +32,7 @@ use crate::mod_base_code::{
     ANY_GUANINE, ANY_THYMINE, METHYL_CYTOSINE, SIX_METHYL_ADENINE,
 };
 use crate::motifs::motif_bed::{MotifInfo, RegexMotif};
+use crate::ordered_scheduler::{run_ordered_scheduler, OrderedWorker};
 use crate::pileup::bedrmod::BedRModArgs;
 use crate::pileup::duplex::{process_region_duplex_batch, DuplexModBasePileup};
 use crate::pileup::pileup_processor::{
@@ -39,7 +40,6 @@ use crate::pileup::pileup_processor::{
     DnaModOption, DnaPileupWorker, Dynamic, GenericPileupWorker, PileupWorker,
     DNA_BASES_CYTOSINE_FIRST,
 };
-use crate::pileup::scheduler::{run_ordered_scheduler, OrderedWorker};
 use crate::pileup::{ModBasePileup2, PileupNumericOptions};
 use crate::position_filter::StrandedPositionFilter;
 use crate::reads_sampler::sampling_schedule::IdxStats;
@@ -133,6 +133,7 @@ where
         Err(error) => vec![Err(error)],
     });
     run_ordered_scheduler(
+        "pileup",
         feeder,
         workers,
         empty_buffers,
@@ -1635,6 +1636,7 @@ impl ModBamPileup {
         });
         let output_queue_size = self.queue_size.unwrap_or(workers.len() * 2);
         run_ordered_scheduler(
+            "pileup",
             feeder,
             workers,
             empties_rx,
