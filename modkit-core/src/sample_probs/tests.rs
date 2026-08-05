@@ -8,14 +8,16 @@ use rust_htslib::bam::{
 
 use super::{
     AlignedBaseAndModArgmaxProbs, AlignedBaseArgmaxProbs,
-    BaseAndModArgmaxProbs, BaseArgmaxProbs, ExtractsMleProbs, ProbsExtractor,
-    QualHist,
+    BaseAndModArgmaxProbs, BaseArgmaxProbs, ExtractsMleProbs, ModHist,
+    ProbsExtractor, QualHist,
 };
 use crate::{
     interval_chunks::{ChromCoordinates, FocusPositions2},
-    mod_base_code::DnaBase,
+    mod_base_code::{DnaBase, METHYL_CYTOSINE},
     reads_sampler::deterministic_sampler::DeterministicFractionSampler,
+    summarize::ModSummary,
 };
+use indicatif::MultiProgress;
 
 fn make_record(name: &str, pos: i64) -> bam::Record {
     let mut record = bam::Record::new();
@@ -194,4 +196,61 @@ fn seeded_fraction_sampling_is_consistent_across_interval_refetches() {
             assert_eq!(hist.num_records_with_base_mods, [0; 4]);
         }
     }
+}
+
+fn all_modified_qual_hist() -> QualHist {
+    let mut hist = [0u64; 256];
+    hist[128] = 1;
+    let mut qual_hist = QualHist::default();
+    qual_hist.mods_hists.push(ModHist {
+        total: 1,
+        mod_code: METHYL_CYTOSINE,
+        dna_base: DnaBase::C,
+        hist,
+    });
+    qual_hist.num_records_with_base_mods[DnaBase::C as usize] = 1;
+    qual_hist.ok_records = 1;
+    qual_hist
+}
+
+#[test]
+fn probability_observations_are_not_inferred_from_record_count() {
+    let mut qual_hist = QualHist::default();
+    qual_hist.ok_records = 1;
+
+    assert!(!qual_hist.has_probability_observations());
+    let error = qual_hist
+        .get_base_thresholds(0.1, None, &MultiProgress::new())
+        .expect_err("record count alone must not enable auto-thresholding");
+    assert!(error.to_string().contains("no modification probabilities"));
+}
+
+#[test]
+fn all_modified_observations_support_automatic_thresholds() {
+    let qual_hist = all_modified_qual_hist();
+    assert!(qual_hist.has_probability_observations());
+    let thresholds = qual_hist
+        .get_base_thresholds(0.1, None, &MultiProgress::new())
+        .expect("all-modified observations must produce a threshold");
+    assert!(thresholds[DnaBase::C as usize] > 0.0);
+
+    let summary = ModSummary::from_qual_hist(
+        all_modified_qual_hist(),
+        10.0,
+        None,
+        None,
+        None,
+        None,
+        &MultiProgress::new(),
+    )
+    .expect("all-modified observations must support automatic summary");
+    assert_eq!(summary.total_reads_used, 1);
+    assert_eq!(
+        summary.mod_call_counts.get(&DnaBase::C).and_then(|counts| {
+            counts.get(&crate::mod_base_code::BaseState::Modified(
+                METHYL_CYTOSINE,
+            ))
+        }),
+        Some(&1)
+    );
 }
