@@ -13,6 +13,7 @@ pub(crate) mod base_mods_adapter;
 pub(crate) mod bedrmod;
 pub(crate) mod duplex;
 pub(super) mod pileup_processor;
+pub(super) mod scheduler;
 pub mod subcommand;
 
 #[derive(Debug, Copy, Clone, new)]

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -24,7 +24,8 @@ use crate::command_utils::{
 };
 use crate::fasta::MotifLocationsLookup;
 use crate::interval_chunks::{
-    ChromCoordinatesFeeder, ReferenceIntervalBatchesFeeder, TotalLength,
+    ChromCoordinates, ChromCoordinatesFeeder, ReferenceIntervalBatchesFeeder,
+    TotalLength,
 };
 use crate::mod_bam::{CollapseMethod, EdgeFilter};
 use crate::mod_base_code::{
@@ -39,6 +40,7 @@ use crate::pileup::pileup_processor::{
     DnaModOption, DnaPileupWorker, Dynamic, GenericPileupWorker, PileupWorker,
     DNA_BASES_CYTOSINE_FIRST,
 };
+use crate::pileup::scheduler::{run_ordered_scheduler, OrderedWorker};
 use crate::pileup::{ModBasePileup2, PileupNumericOptions};
 use crate::position_filter::StrandedPositionFilter;
 use crate::reads_sampler::sampling_schedule::IdxStats;
@@ -56,6 +58,16 @@ use crate::writers::{
     BedMethylWriter, BedMethylWriter2, MultipleMotifBedmethylWriter,
     PhasedBedMethylWriter, PileupWriter,
 };
+
+impl OrderedWorker<ChromCoordinates, ModBasePileup2> for Box<dyn PileupWorker> {
+    fn process(
+        &mut self,
+        job: ChromCoordinates,
+        buffer: ModBasePileup2,
+    ) -> anyhow::Result<ModBasePileup2> {
+        PileupWorker::process(self.as_mut(), job, buffer)
+    }
+}
 
 #[derive(Args)]
 #[command(arg_required_else_help = true)]
@@ -1538,105 +1550,32 @@ impl ModBamPileup {
         let erred_reads = master_progress.add(get_ticker());
         erred_reads.set_message("~records errored");
 
-        let (jobs_tx, jobs_rx) = crossbeam_channel::bounded(workers.len() * 2);
-        let (results_tx, results_rx) = crossbeam_channel::unbounded();
-        let (records_tx, records_rx) = crossbeam_channel::bounded(
-            self.queue_size.unwrap_or(workers.len() * 2),
-        );
-
         for _ in 0..(workers.len() * 2) {
             empties_tx.send(ModBasePileup2::new_empty()).unwrap();
         }
         let mpb_handle = master_progress.clone();
-
-        let source = std::thread::spawn({
-            let results_handle = results_tx.clone();
-            let feeder = feeder
-                .into_iter()
-                .inspect(move |r| match r {
-                    Ok(_) => {}
-                    Err(e) => {
-                        mpb_handle.suspend(|| {
-                            error!("failed to fetch sequence, {e}")
-                        });
-                    }
-                })
-                .filter_map(|r| r.ok());
-            move || {
-                let get_mem = || -> Result<ModBasePileup2, ()> {
-                    match empties_rx.recv() {
-                        Ok(mem) => Ok(mem),
-                        Err(_) => Err(()),
-                    }
-                };
-                let mut seq = 0usize;
-                for chrom_coords in feeder {
-                    match get_mem() {
-                        Ok(mem) => {
-                            if jobs_tx.send((seq, chrom_coords, mem)).is_err() {
-                                break;
-                            }
-                            seq = seq.wrapping_add(1);
-                        }
-                        Err(_) => {
-                            break;
-                        }
-                    }
-                }
-                drop(jobs_tx);
-                drop(results_handle);
-            }
+        let feeder = feeder.into_iter().map(move |result| {
+            result.map_err(|error| {
+                mpb_handle
+                    .suspend(|| error!("failed to fetch sequence, {error}"));
+                error.into()
+            })
         });
-
-        let mut handles = Vec::with_capacity(workers.len());
-        for mut worker_state in workers {
-            let jobs_rx = jobs_rx.clone();
-            let results_tx = results_tx.clone();
-            handles.push(std::thread::spawn(move || {
-                while let Ok((seq, item, mem)) = jobs_rx.recv() {
-                    let out = worker_state.process(item, mem);
-                    // If collector disappeared, we can exit.
-                    if results_tx.send((seq, out)).is_err() {
-                        break;
-                    }
-                }
-            }));
-        }
-        drop(results_tx);
-        drop(jobs_rx);
-
-        let aggregator = std::thread::spawn(move || {
-            let mut next_seq = 0usize;
-            let mut buffer: BTreeMap<usize, anyhow::Result<ModBasePileup2>> =
-                BTreeMap::new();
-
-            while let Ok((seq, out)) = results_rx.recv() {
-                buffer.insert(seq, out);
-
-                while let Some(v) = buffer.remove(&next_seq) {
-                    if records_tx.send(v).is_err() {
-                        return;
-                    }
-                    next_seq = next_seq.wrapping_add(1);
-                }
-            }
-            drop(records_tx);
-        });
-
-        for result in records_rx.into_iter() {
-            match result {
-                Ok(mod_base_pileup) => {
-                    tid_progress.inc(mod_base_pileup.interval_width as u64);
-                    erred_reads.inc(mod_base_pileup.failed_records as u64);
-                    let rows_written =
-                        writer.write(mod_base_pileup, &motif_labels)?;
-                    write_progress.inc(rows_written);
-                }
-                Err(message) => {
-                    debug!("unexpected error {message}");
-                }
-            }
-        }
+        let output_queue_size = self.queue_size.unwrap_or(workers.len() * 2);
+        run_ordered_scheduler(
+            feeder,
+            workers,
+            empties_rx,
+            output_queue_size,
+            |mod_base_pileup| {
+                tid_progress.inc(mod_base_pileup.interval_width as u64);
+                erred_reads.inc(mod_base_pileup.failed_records as u64);
+                let rows_written =
+                    writer.write(mod_base_pileup, &motif_labels)?;
+                write_progress.inc(rows_written);
+                Ok(())
+            },
+        )?;
 
         let rows_processed = write_progress.position();
         let n_failed_reads = erred_reads.position();
@@ -1653,12 +1592,6 @@ impl ModBamPileup {
             info!("Done, processed {rows_processed} rows.");
         });
         tid_progress.finish_and_clear();
-
-        source.join().expect("source thread paniced");
-        for (i, worker_thread) in handles.into_iter().enumerate() {
-            worker_thread.join().expect(&format!("worker thread {i} paniced"));
-        }
-        aggregator.join().expect("aggregator theread paniced");
 
         Ok(())
     }
