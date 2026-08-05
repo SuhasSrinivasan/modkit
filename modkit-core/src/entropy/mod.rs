@@ -1710,8 +1710,11 @@ impl DescriptiveStats {
                 "measurements and n_reads should be the same length"
             );
             let mean_entropy = Self::mean(measurements);
-            let median_entropy =
-                percentile_linear_interp(measurements, 0.5f32)?;
+            let median_entropy = if measurements.len() == 1 {
+                measurements[0]
+            } else {
+                percentile_linear_interp(measurements, 0.5f32)?
+            };
             // safe because of above check
             let (min_entropy, max_entropy) = match measurements.iter().minmax()
             {
