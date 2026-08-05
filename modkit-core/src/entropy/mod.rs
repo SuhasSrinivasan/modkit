@@ -2401,6 +2401,70 @@ mod entropy_mod_tests {
     }
 
     #[test]
+    fn duplicate_anchor_groups_remain_unique_across_scan_stripes() {
+        let sequence = "CGACGA".chars().collect::<Vec<_>>();
+        let motifs = vec![
+            RegexMotif::parse_string("CG", 0).unwrap(),
+            RegexMotif::parse_string("CGN", 0).unwrap(),
+        ];
+
+        let hits = SlidingWindows::scan_motif_hits_with_config_for_test(
+            &sequence,
+            &motifs,
+            0..sequence.len(),
+            0,
+            "chr1",
+            false,
+            1,
+            2,
+            Some(Strand::Positive),
+        )
+        .unwrap();
+
+        assert_eq!(
+            hits.iter().map(|hit| hit.pos).collect::<Vec<_>>(),
+            vec![0, 3]
+        );
+    }
+
+    #[test]
+    fn out_of_window_lookahead_is_not_emitted_and_scan_terminates() {
+        let make_search_space = |tid, name: &str| {
+            let sequence = "AAAA".chars().collect::<Vec<_>>();
+            ReferenceSearchSpace {
+                record: ReferenceRecord::new(
+                    tid,
+                    0,
+                    sequence.len() as u32,
+                    name.to_string(),
+                ),
+                owner: 0..sequence.len(),
+                sequence: Arc::new(sequence),
+            }
+        };
+        let mut windows = SlidingWindows::new_for_test(
+            VecDeque::from([
+                make_search_space(0, "chr1"),
+                make_search_space(1, "chr2"),
+            ]),
+            vec![RegexMotif::parse_string("A", 0).unwrap()],
+            false,
+            2,
+            1,
+            1,
+            2,
+            2,
+        )
+        .unwrap();
+
+        // Every lookahead contains the next anchor at or beyond the exclusive
+        // one-base window end, so no two-position window is eligible.
+        assert!(windows.next().is_none());
+        assert!(windows.done);
+        assert!(windows.next().is_none());
+    }
+
+    #[test]
     fn dense_two_owner_scan_has_fixed_live_hit_high_water() {
         const CHUNK_SIZE: usize = 31;
         const STRIPES_PER_BATCH: usize = 3;
@@ -2447,8 +2511,12 @@ mod entropy_mod_tests {
         // lookaheads.
         let fixed_bound =
             6 * CHUNK_SIZE * STRIPES_PER_BATCH + 2 * NUM_POSITIONS;
-        assert!(windows.high_water_retained_hits_for_test() <= fixed_bound);
-        assert!(windows.high_water_retained_hits_for_test() < 513 * 4);
+        let raw_or_dedup_max =
+            4 * CHUNK_SIZE * STRIPES_PER_BATCH + 2 * NUM_POSITIONS;
+        let high_water = windows.high_water_retained_hits_for_test();
+        assert!(high_water > raw_or_dedup_max);
+        assert!(high_water <= fixed_bound);
+        assert!(high_water < 513 * 4);
     }
 
     #[test]
