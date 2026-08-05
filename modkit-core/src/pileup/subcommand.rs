@@ -57,6 +57,18 @@ use crate::writers::{
     PhasedBedMethylWriter, PileupWriter,
 };
 
+const MAX_PILEUP_MOTIFS: usize = u8::BITS as usize;
+
+fn validate_motif_capacity(motif_count: usize) -> anyhow::Result<()> {
+    if motif_count > MAX_PILEUP_MOTIFS {
+        bail!(
+            "pileup supports at most {MAX_PILEUP_MOTIFS} motifs because motif \
+             membership is stored in an 8-bit mask; received {motif_count}"
+        )
+    }
+    Ok(())
+}
+
 #[derive(Args)]
 #[command(arg_required_else_help = true)]
 pub struct ModBamPileup {
@@ -543,6 +555,7 @@ impl ModBamPileup {
     ) -> anyhow::Result<(Option<Presets>, Option<Vec<RegexMotif>>)> {
         let mut regex_motifs =
             self.parse_user_motifs().transpose()?.unwrap_or_else(Vec::new);
+        validate_motif_capacity(regex_motifs.len())?;
         if regex_motifs.len() > 1 {
             if self.combine_strands {
                 bail!(
@@ -576,6 +589,7 @@ impl ModBamPileup {
                     }
                 }
             }
+            validate_motif_capacity(regex_motifs.len())?;
             return Ok((None, Some(regex_motifs)));
         }
         if let Some(modified_bases) = self.modified_bases.as_ref() {
@@ -1661,6 +1675,20 @@ impl ModBamPileup {
         aggregator.join().expect("aggregator theread paniced");
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn motif_capacity_accepts_eight_and_rejects_nine() {
+        assert!(validate_motif_capacity(8).is_ok());
+
+        let error = validate_motif_capacity(9).unwrap_err().to_string();
+        assert!(error.contains("at most 8 motifs"));
+        assert!(error.contains("received 9"));
     }
 }
 
