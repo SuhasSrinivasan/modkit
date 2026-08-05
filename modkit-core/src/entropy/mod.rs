@@ -1998,8 +1998,8 @@ impl BedRegion {
 mod entropy_mod_tests {
     use crate::entropy::methylation_entropy::EntropySymbol;
     use crate::entropy::{
-        BedRegion, GenomeWindow, GenomeWindows, ReferenceSearchSpace,
-        SlidingWindows,
+        BedRegion, DescriptiveStats, GenomeWindow, GenomeWindows,
+        ReferenceSearchSpace, SlidingWindows,
     };
     use crate::mod_bam::BaseModCall;
     use crate::mod_base_code::{DnaBase, ModCodeRepr};
@@ -2315,6 +2315,44 @@ mod entropy_mod_tests {
         )
         .unwrap();
         assert_eq!(deduped.len(), 1);
+    }
+
+    #[test]
+    fn singleton_entropy_summary_uses_its_value_as_the_median() {
+        let stats = DescriptiveStats::new(&[0.25], &[7], 2, 0, &(10..11))
+            .expect("a singleton is a valid regional entropy summary");
+
+        assert_eq!(stats.mean_entropy, 0.25);
+        assert_eq!(stats.median_entropy, 0.25);
+        assert_eq!(stats.min_entropy, 0.25);
+        assert_eq!(stats.max_entropy, 0.25);
+        assert_eq!(stats.mean_num_reads, 7.0);
+        assert_eq!(stats.min_num_reads, 7);
+        assert_eq!(stats.max_num_reads, 7);
+        assert_eq!(stats.successful_count, 1);
+        assert_eq!(stats.failed_count, 2);
+    }
+
+    #[test]
+    fn multi_window_entropy_summary_keeps_existing_exact_statistics() {
+        let stats = DescriptiveStats::new(
+            &[0.25, 0.5, 0.75],
+            &[2, 4, 6],
+            1,
+            0,
+            &(10..20),
+        )
+        .unwrap();
+
+        assert_eq!(stats.mean_entropy, 0.5);
+        assert_eq!(stats.median_entropy, 0.5);
+        assert_eq!(stats.min_entropy, 0.25);
+        assert_eq!(stats.max_entropy, 0.75);
+        assert_eq!(stats.mean_num_reads, 4.0);
+        assert_eq!(stats.min_num_reads, 2);
+        assert_eq!(stats.max_num_reads, 6);
+        assert_eq!(stats.successful_count, 3);
+        assert_eq!(stats.failed_count, 1);
     }
 
     #[test]
