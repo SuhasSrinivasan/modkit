@@ -20,8 +20,8 @@ use rustc_hash::FxHashMap;
 use crate::adjust::adjust_modbam;
 use crate::command_utils::{
     get_bam_writer, get_motif_lookup_from_parts, get_serial_reader,
-    get_threshold_from_options, parse_edge_filter_input, parse_forward_motifs,
-    parse_per_mod_thresholds, parse_raw_motifs,
+    get_threshold_from_options_with_reference, parse_edge_filter_input,
+    parse_forward_motifs, parse_per_mod_thresholds, parse_raw_motifs,
     parse_raw_thresholds_string_with_default, parse_sampling_fraction,
     parse_thresholds, using_stream,
 };
@@ -56,7 +56,8 @@ use crate::summarize::ModSummary;
 use crate::util::{
     add_modkit_pg_records, filter_reference_records, format_errors_table,
     get_master_progress_bar, get_subroutine_progress_bar, get_targets,
-    get_ticker, ReferenceRecord, Region, DEFAULT_NUM_READS,
+    get_ticker, preflight_cram_input, reader_is_cram,
+    set_reference_for_cram_reader, ReferenceRecord, Region, DEFAULT_NUM_READS,
 };
 use crate::writers::{
     MultiTableWriter, OutWriter, SampledProbs, TableWriter, TsvWriter,
@@ -531,6 +532,9 @@ pub struct Adjust {
     /// File path to new BAM file to be created. Can be a path to a file or one
     /// of `-` or `stdin` to specify a stream from standard output.
     out_bam: String,
+    /// Reference sequence in FASTA format for CRAM decoding. (alias: 'ref')
+    #[arg(long = "reference", alias = "ref", short = 'r')]
+    reference_fasta: Option<PathBuf>,
     /// Output debug logs to file at this path.
     #[clap(help_heading = "Output Options")]
     #[arg(long, alias = "log")]
@@ -707,12 +711,19 @@ impl Adjust {
         let _handle = init_logging(self.log_filepath.as_ref());
         let io_threadpool = tpool::ThreadPool::new(self.threads as u32)?;
         let mut reader = get_serial_reader(self.in_bam.as_str())?;
+        set_reference_for_cram_reader(
+            &mut reader,
+            self.reference_fasta.as_ref(),
+        )?;
+        if !using_stream(&self.in_bam) && reader_is_cram(&reader) {
+            preflight_cram_input(
+                Path::new(&self.in_bam),
+                self.reference_fasta.as_ref(),
+            )?;
+        }
         reader.set_thread_pool(&io_threadpool)?;
         let mut header = bam::Header::from_template(reader.header());
         add_modkit_pg_records(&mut header);
-        let mut bam_writer =
-            get_bam_writer(&self.out_bam, &header, self.output_sam)?;
-        bam_writer.set_thread_pool(&io_threadpool)?;
 
         let methods = if let Some(convert) = &self.convert {
             let convert = convert
@@ -831,8 +842,9 @@ impl Adjust {
                     .build()
                     .with_context(|| "failed to make threadpool")?;
                 pool.install(|| {
-                    get_threshold_from_options(
+                    get_threshold_from_options_with_reference(
                         &Path::new(&self.in_bam).to_path_buf(),
+                        self.reference_fasta.as_ref(),
                         self.threads,
                         self.sampling_interval_size,
                         None,
@@ -854,6 +866,10 @@ impl Adjust {
         } else {
             None
         };
+
+        let mut bam_writer =
+            get_bam_writer(&self.out_bam, &header, self.output_sam)?;
+        bam_writer.set_thread_pool(&io_threadpool)?;
 
         adjust_modbam(
             &mut reader,
@@ -2220,6 +2236,9 @@ pub struct CallMods {
     /// Output BAM, can be a path to a file or one of `-` or
     /// `stdin` to specify a stream from standard input.
     out_bam: String,
+    /// Reference sequence in FASTA format for CRAM decoding. (alias: 'ref')
+    #[arg(long = "reference", alias = "ref", short = 'r')]
+    reference_fasta: Option<PathBuf>,
     /// Specify a file for debug logs to be written to, otherwise ignore them.
     /// Setting a file is recommended.
     #[arg(long, alias = "log")]
@@ -2389,12 +2408,19 @@ impl CallMods {
         let _handle = init_logging(self.log_filepath.as_ref());
         let io_threadpool = tpool::ThreadPool::new(self.threads as u32)?;
         let mut reader = get_serial_reader(&self.in_bam)?;
+        set_reference_for_cram_reader(
+            &mut reader,
+            self.reference_fasta.as_ref(),
+        )?;
+        if !using_stream(&self.in_bam) && reader_is_cram(&reader) {
+            preflight_cram_input(
+                Path::new(&self.in_bam),
+                self.reference_fasta.as_ref(),
+            )?;
+        }
         reader.set_thread_pool(&io_threadpool)?;
         let mut header = bam::Header::from_template(reader.header());
         add_modkit_pg_records(&mut header);
-        let mut bam_writer =
-            get_bam_writer(&self.out_bam, &header, self.output_sam)?;
-        bam_writer.set_thread_pool(&io_threadpool)?;
 
         let edge_filter = self
             .edge_filter
@@ -2436,8 +2462,9 @@ impl CallMods {
                 .build()
                 .with_context(|| "failed to make threadpool")?;
             pool.install(|| {
-                get_threshold_from_options(
+                get_threshold_from_options_with_reference(
                     &Path::new(&self.in_bam).to_path_buf(),
+                    self.reference_fasta.as_ref(),
                     self.threads,
                     self.sampling_interval_size,
                     self.sampling_frac,
@@ -2455,6 +2482,10 @@ impl CallMods {
                 )
             })?
         };
+
+        let mut bam_writer =
+            get_bam_writer(&self.out_bam, &header, self.output_sam)?;
+        bam_writer.set_thread_pool(&io_threadpool)?;
 
         adjust_modbam(
             &mut reader,
