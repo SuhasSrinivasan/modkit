@@ -3,9 +3,11 @@ use itertools::Itertools;
 use rust_htslib::bam;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+use std::process::Command;
+use tempfile::TempDir;
 
 use common::{check_against_expected_text_file, run_modkit};
 use mod_kit::dmr::bedmethyl::BedMethylLine;
@@ -17,6 +19,73 @@ mod common;
 fn test_pileup_help() {
     let pileup_help_args = ["pileup", "--help"];
     let _out = run_modkit(&pileup_help_args).unwrap();
+}
+
+fn make_truncated_indexed_bam() -> (TempDir, PathBuf) {
+    const SOURCE: &str = "../tests/resources/bc_anchored_10_reads.sorted.bam";
+    let temp_dir = tempfile::tempdir().unwrap();
+    let bam_fp = temp_dir.path().join("truncated.bam");
+    fs::copy(SOURCE, &bam_fp).unwrap();
+    fs::copy(format!("{SOURCE}.bai"), bam_fp.with_extension("bam.bai"))
+        .unwrap();
+
+    let bam = File::options().write(true).open(&bam_fp).unwrap();
+    let len = bam.metadata().unwrap().len();
+    bam.set_len(len.checked_sub(64).unwrap()).unwrap();
+    (temp_dir, bam_fp)
+}
+
+fn assert_truncated_pileup_fails(extra_args: &[&str]) {
+    let (_temp_dir, bam_fp) = make_truncated_indexed_bam();
+    let out_fp = bam_fp.with_extension("bed");
+    let output = Command::new(env!("CARGO_BIN_EXE_modkit"))
+        .arg("pileup")
+        .arg(&bam_fp)
+        .arg(&out_fp)
+        .args(["--no-filtering", "--threads", "1", "--io-threads", "1"])
+        .args(extra_args)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "truncated BAM unexpectedly succeeded; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("failed to read BAM record during pileup"),
+        "missing BAM read context in stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_generic_pileup_rejects_truncated_bam() {
+    assert_truncated_pileup_fails(&[]);
+}
+
+#[test]
+fn test_optimized_pileup_rejects_truncated_bam() {
+    assert_truncated_pileup_fails(&[
+        "--modified-bases",
+        "5mC",
+        "5hmC",
+        "--ref",
+        "../tests/resources/CGI_ladder_3.6kb_ref.fa",
+    ]);
+}
+
+#[test]
+fn test_high_depth_pileup_rejects_truncated_bam() {
+    assert_truncated_pileup_fails(&[
+        "--modified-bases",
+        "5mC",
+        "5hmC",
+        "--ref",
+        "../tests/resources/CGI_ladder_3.6kb_ref.fa",
+        "--high-depth",
+        "--max-depth",
+        "10",
+    ]);
 }
 
 #[test]

@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use bitvec::slice::BitSlice;
 use common_macros::hash_map;
 use itertools::Itertools;
@@ -176,22 +176,20 @@ impl<
             })
             .filter_ok(|record| {
                 record_is_primary(record) || self.allow_non_primary
-            })
-            .filter_map(|res| match res {
-                Ok(record) => {
-                    if self.phased {
-                        let hp =
-                            get_haplotype_tag(&record, &HPTAG).unwrap_or(0u8);
-                        Some((record, hp))
-                    } else {
-                        Some((record, 0u8))
-                    }
-                }
-                // TODO: tabulate this error
-                Err(_) => None,
             });
 
-        'records: for (record, hp) in records {
+        'records: for result in records {
+            let record = result.with_context(|| {
+                format!(
+                    "failed to read BAM record during pileup at \
+                     {chrom_name}:{start_pos}-{end_pos}"
+                )
+            })?;
+            let hp = if self.phased {
+                get_haplotype_tag(&record, &HPTAG).unwrap_or(0u8)
+            } else {
+                0u8
+            };
             if self.allow_non_primary && record_is_not_primary(&record) {
                 if validate_mn_tag_on_record(&record).is_err() {
                     erred_records = erred_records.saturating_add(1);
@@ -577,9 +575,7 @@ impl PileupWorker for GenericPileupWorker {
             .reader
             .records()
             .filter_ok(|record| record.tid() >= 0i32)
-            .filter_ok(|record| record_is_primary(record))
-            // TODO: Capture errors here. Also check for partition-tag
-            .filter_map(|res| res.ok());
+            .filter_ok(|record| record_is_primary(record));
 
         let mut chrom_features: FxHashMap<PositionStrand, Tally2> =
             FxHashMap::default();
@@ -629,7 +625,13 @@ impl PileupWorker for GenericPileupWorker {
         let mut canonical_base = Option::<DnaBase>::None;
         let mut pos_base_mod_call = Option::<BaseModCall>::None;
         let mut mod_strand = Option::<Strand>::None;
-        'records: for record in records {
+        'records: for result in records {
+            let record = result.with_context(|| {
+                format!(
+                    "failed to read BAM record during pileup at \
+                     {chrom_name}:{start_pos}-{end_pos}"
+                )
+            })?;
             let reverse = record.is_reverse();
             let record_strand = if record.is_reverse() {
                 Strand::Negative
