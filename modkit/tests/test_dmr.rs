@@ -150,7 +150,11 @@ fn dmr_prior_cli_accepts_boundary_and_interior_but_rejects_invalid_inputs() {
         .contains("invalid beta parameters 0, 1"));
 }
 
-fn run_zero_coverage_dmr(output: &Path, prior: Option<(&str, &str)>) -> Output {
+fn run_zero_coverage_dmr(
+    output: &Path,
+    prior: Option<(&str, &str)>,
+    delta: Option<&str>,
+) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_modkit"));
     command.args([
         "dmr",
@@ -177,6 +181,9 @@ fn run_zero_coverage_dmr(output: &Path, prior: Option<(&str, &str)>) -> Output {
     ]);
     if let Some((alpha, beta)) = prior {
         command.args(["--prior", alpha, beta]);
+    }
+    if let Some(delta) = delta {
+        command.args(["--delta", delta]);
     }
     command.output().unwrap()
 }
@@ -206,7 +213,7 @@ fn zero_coverage_site_is_failed_without_nan_under_default_prior() {
     let temp_dir = tempfile::tempdir().unwrap();
     let output_path = temp_dir.path().join("default-prior.bed");
 
-    let output = run_zero_coverage_dmr(&output_path, None);
+    let output = run_zero_coverage_dmr(&output_path, None, None);
 
     assert_zero_coverage_is_failed(output, &output_path);
 }
@@ -214,11 +221,14 @@ fn zero_coverage_site_is_failed_without_nan_under_default_prior() {
 #[test]
 fn zero_coverage_site_does_not_abort_at_boundary_prior() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let output_path = temp_dir.path().join("boundary-prior.bed");
 
-    let output = run_zero_coverage_dmr(&output_path, Some(("0.5", "0.5")));
+    for (label, delta) in [("default-delta", None), ("delta-one", Some("1"))] {
+        let output_path = temp_dir.path().join(format!("{label}.bed"));
+        let output =
+            run_zero_coverage_dmr(&output_path, Some(("0.5", "0.5")), delta);
 
-    assert_zero_coverage_is_failed(output, &output_path);
+        assert_zero_coverage_is_failed(output, &output_path);
+    }
 }
 
 fn run_segmented_dmr(
