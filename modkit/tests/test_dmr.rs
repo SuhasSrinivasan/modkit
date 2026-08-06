@@ -7,6 +7,12 @@ use std::process::{Command, Output};
 
 mod common;
 
+const ZERO_COVERAGE_BED: &str =
+    "../tests/resources/dmr_zero_coverage_chr1.bed.gz";
+const CANONICAL_ONLY_BED: &str =
+    "../tests/resources/dmr_canonical_only_chr1.bed.gz";
+const ZERO_COVERAGE_REF: &str = "../tests/resources/dmr_zero_coverage_chr1.fa";
+
 #[test]
 fn test_dmr_helps() {
     let _ = run_modkit(&["dmr", "pair", "--help"])
@@ -142,6 +148,77 @@ fn dmr_prior_cli_accepts_boundary_and_interior_but_rejects_invalid_inputs() {
     assert!(!non_positive.status.success());
     assert!(String::from_utf8_lossy(&non_positive.stderr)
         .contains("invalid beta parameters 0, 1"));
+}
+
+fn run_zero_coverage_dmr(output: &Path, prior: Option<(&str, &str)>) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_modkit"));
+    command.args([
+        "dmr",
+        "pair",
+        "-a",
+        ZERO_COVERAGE_BED,
+        "-b",
+        CANONICAL_ONLY_BED,
+        "-o",
+        output.to_str().unwrap(),
+        "--ref",
+        ZERO_COVERAGE_REF,
+        "--base",
+        "C",
+        "--max-coverages",
+        "1",
+        "1",
+        "--threads",
+        "1",
+        "--io-threads",
+        "1",
+        "--suppress-progress",
+        "--force",
+    ]);
+    if let Some((alpha, beta)) = prior {
+        command.args(["--prior", alpha, beta]);
+    }
+    command.output().unwrap()
+}
+
+fn assert_zero_coverage_is_failed(output: Output, output_path: &Path) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "zero-coverage DMR site should be a recoverable site failure: {stderr}"
+    );
+    assert!(stderr.contains("beta-diff-calc-error"), "{stderr}");
+    assert!(
+        stderr.contains("processed 0 sites successfully, 1 failed"),
+        "{stderr}"
+    );
+
+    let output_bytes = fs::read(output_path).unwrap();
+    assert!(
+        output_bytes.is_empty(),
+        "zero-coverage site produced output: {}",
+        String::from_utf8_lossy(&output_bytes)
+    );
+}
+
+#[test]
+fn zero_coverage_site_is_failed_without_nan_under_default_prior() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output_path = temp_dir.path().join("default-prior.bed");
+
+    let output = run_zero_coverage_dmr(&output_path, None);
+
+    assert_zero_coverage_is_failed(output, &output_path);
+}
+
+#[test]
+fn zero_coverage_site_does_not_abort_at_boundary_prior() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output_path = temp_dir.path().join("boundary-prior.bed");
+
+    let output = run_zero_coverage_dmr(&output_path, Some(("0.5", "0.5")));
+
+    assert_zero_coverage_is_failed(output, &output_path);
 }
 
 fn run_segmented_dmr(
