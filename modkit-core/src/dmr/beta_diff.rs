@@ -33,6 +33,8 @@ impl Counts {
     pub fn new(n_mod: usize, coverage: usize) -> anyhow::Result<Self> {
         if n_mod > coverage {
             bail!("n_mod cannot be > coverage")
+        } else if coverage == 0 {
+            bail!("coverage must be > 0")
         } else {
             let frac_modified = n_mod as f64 / coverage as f64;
             Ok(Self { n_mod, coverage, frac_modified })
