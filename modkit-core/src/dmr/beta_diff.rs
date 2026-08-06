@@ -174,8 +174,8 @@ impl PMapEstimator {
         let ln_A = ln_beta(params1.alpha, params1.beta)
             + ln_beta(params2.alpha, params2.beta);
         if d.abs() < self.rope {
-            if (params1.alpha + params2.alpha < 1f64)
-                || (params1.beta + params2.beta < 1f64)
+            if (params1.alpha + params2.alpha <= 1f64)
+                || (params1.beta + params2.beta <= 1f64)
             {
                 bail!(
                     "alpha1 + alpha2 <= 1 or beta1 + beta2 <= 1, params1 \
