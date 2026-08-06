@@ -3,6 +3,7 @@ use crate::common::{
 };
 use std::fs;
 use std::path::Path;
+use std::process::{Command, Output};
 
 mod common;
 
@@ -75,6 +76,72 @@ fn test_dmr_regression() {
         out_bed.to_str().unwrap(),
         "../tests/resources/test_output_chr20-2.bed",
     );
+}
+
+fn run_dmr_with_prior(output: &Path, alpha: &str, beta: &str) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_modkit"))
+        .args([
+            "dmr",
+            "pair",
+            "-a",
+            "../tests/resources/lung_00733-m_adjacent-normal_5mc-5hmc_chr20_cpg_pileup.bed.gz",
+            "-b",
+            "../tests/resources/lung_00733-m_primary-tumour_5mc-5hmc_chr20_cpg_pileup.bed.gz",
+            "-o",
+            output.to_str().unwrap(),
+            "--ref",
+            "../tests/resources/GRCh38_chr20.fa",
+            "--base",
+            "C",
+            "--prior",
+            alpha,
+            beta,
+            "--delta",
+            "1",
+            "--max-coverages",
+            "100",
+            "100",
+            "--threads",
+            "1",
+            "--io-threads",
+            "1",
+            "--suppress-progress",
+            "--force",
+        ])
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn dmr_prior_cli_accepts_boundary_and_interior_but_rejects_invalid_inputs() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    for (label, alpha, beta) in
+        [("boundary", "0.5", "0.5"), ("interior", "0.55", "0.55")]
+    {
+        let output_path = temp_dir.path().join(format!("{label}.bed"));
+        let output = run_dmr_with_prior(&output_path, alpha, beta);
+        assert!(
+            output.status.success(),
+            "{label} prior ({alpha}, {beta}) was rejected: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let below_boundary = run_dmr_with_prior(
+        &temp_dir.path().join("below-boundary.bed"),
+        "0.4",
+        "0.5",
+    );
+    assert!(!below_boundary.status.success());
+    assert!(String::from_utf8_lossy(&below_boundary.stderr)
+        .contains("alpha + beta must be >= 1.0 for numerical stability"));
+
+    let non_positive =
+        run_dmr_with_prior(&temp_dir.path().join("non-positive.bed"), "0", "1");
+    assert!(!non_positive.status.success());
+    assert!(String::from_utf8_lossy(&non_positive.stderr)
+        .contains("invalid beta parameters 0, 1"));
 }
 
 fn run_segmented_dmr(
